@@ -10,6 +10,7 @@ CREATE TABLE users (
   clio_user_id bigint,
   provider_node_id bigint REFERENCES nodes(id),
   last_login   timestamptz,
+  prev_login   timestamptz,               -- the login before this one: "what moved since you last looked"
   UNIQUE (role, email)
 );
 CREATE TABLE access_codes (
@@ -34,10 +35,13 @@ CREATE TABLE shared_items (
   matter_id    bigint NOT NULL,
   provider_node_id bigint NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
   category     text NOT NULL,
+  label        text NOT NULL DEFAULT '',
+  patient      text,                    -- who the provider is treating, so the practice can tell its cases apart
   payload      jsonb NOT NULL,
   published_by bigint REFERENCES users(id),
   published_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE INDEX ON shared_items (provider_node_id, matter_id, category, published_at DESC);
 -- Read by the pipeline's getOpenItems (contract E in BUILD_PLAN.md).
 CREATE TABLE provider_replies (
   id           bigserial PRIMARY KEY,
@@ -78,18 +82,33 @@ CREATE TABLE drafts (
 );
 CREATE TABLE outbox (
   id        bigserial PRIMARY KEY,
+  matter_id bigint,
+  reason    text,                       -- stage_change | settlement | access_code
   recipient text NOT NULL,
   subject   text NOT NULL,
   body      text NOT NULL,
   at        timestamptz NOT NULL DEFAULT now()
 );
+-- Last stage each matter was seen at, so a stage change writes provider emails to the outbox once.
+CREATE TABLE stage_seen (
+  matter_id bigint PRIMARY KEY,
+  stage     text,
+  at        timestamptz NOT NULL DEFAULT now()
+);
 CREATE TABLE voice_turns (
   id             bigserial PRIMARY KEY,
   user_id        bigint,
+  matter_id      bigint,
+  model          text,
+  tool_calls     jsonb NOT NULL DEFAULT '[]',
   question       text,
   answer         text,
   dropped        jsonb NOT NULL DEFAULT '[]',  -- sentences removed by the number/quote check
-  first_audio_ms int,
+  first_text_ms  int,                  -- request start to first checked sentence
+  first_audio_ms int,                  -- request start to first audio, reported by the browser
+  total_ms       int,
   tokens         int,
+  input_tokens   int,
+  output_tokens  int,
   at             timestamptz NOT NULL DEFAULT now()
 );
