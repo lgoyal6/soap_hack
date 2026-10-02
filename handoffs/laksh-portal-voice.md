@@ -19,3 +19,7 @@ Reset: `docker compose down -v && docker compose up -d`, then sync again.
 - `/api/case/*` returns 401 to a provider; the plan says 403. The access test accepts either.
 - The dock lives in the fixed bottom box in `FirmBrief.tsx`; it can grow up to about 450px tall when the transcript
   and drafts are open. If that covers too much, cap the box height there.
+
+## Later: iMessage summary
+- `send_imessage` tool (`lib/voice/imessage.ts`): texts a checked summary to `IMESSAGE_TO` via Messages.app (macOS only).
+- Ask for Tijil: add `IMESSAGE_TO=` to `.env.example`.

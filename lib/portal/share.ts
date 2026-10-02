@@ -173,6 +173,6 @@ export async function panelData(matterId: number): Promise<SharePanelData> {
     });
   }
   const outbox = await q<{ recipient: string; subject: string; at: Date; reason: string | null }>(
-    "SELECT recipient, subject, at, reason FROM outbox WHERE matter_id = $1 ORDER BY at DESC LIMIT 20", [matterId]);
+    "SELECT recipient, subject, at, reason FROM outbox WHERE matter_id = $1 AND reason IS DISTINCT FROM 'imessage' ORDER BY at DESC LIMIT 20", [matterId]);
   return { matterId, patient, providers: out, outbox: outbox.map((o) => ({ ...o, at: o.at.toISOString() })) };
 }

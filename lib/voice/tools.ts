@@ -4,7 +4,8 @@ import type { ChatCompletionTool } from "openai/resources/chat/completions";
 import type { SectionName, SourceRef } from "../contracts";
 import { q } from "../db";
 import { tools } from "../tools";
-import { numbersFromData, unsupported } from "./check";
+import { extractCites, numbersFromData, splitSentences, unsupported } from "./check";
+import { imessageTarget, sendIMessage } from "./imessage";
 
 export type Registry = { refs: SourceRef[]; section: (SectionName | null)[] };
 
@@ -12,7 +13,8 @@ export type Registry = { refs: SourceRef[]; section: (SectionName | null)[] };
 export type Action =
   | { type: "show"; section?: SectionName; source?: SourceRef }
   | { type: "replay"; from?: string; to?: string }
-  | { type: "draft"; draft: { id: number; kind: string; recipient: string | null; body: string; at: string } };
+  | { type: "draft"; draft: { id: number; kind: string; recipient: string | null; body: string; at: string } }
+  | { type: "sent"; channel: "imessage"; to: string; body: string };
 
 const fn = (name: string, description: string, properties: Record<string, object> = {}, required: string[] = []): ChatCompletionTool => ({
   type: "function",
@@ -43,6 +45,9 @@ export const TOOL_DEFS: ChatCompletionTool[] = [
     to: { type: "string", description: "Recipient name or role" },
     body: { type: "string" },
   }, ["kind", "body"]),
+  fn("send_imessage", "Text a short case summary to the attorney's own phone by iMessage. Only when the attorney asks for it in this message. The recipient is fixed; you cannot choose it.", {
+    body: { type: "string", description: "Plain sentences built only from tool results, with [n] source markers. No markdown." },
+  }, ["body"]),
 ];
 
 /** Which page section a tool's facts live in, so the page can follow the answer. */
@@ -89,7 +94,8 @@ function shape(name: string, res: unknown, reg: Registry) {
   return { ...body, ...(r && typeof r === "object" && "searched" in r ? { searched: r.searched } : {}) };
 }
 
-export type ToolCtx = { matterId: number; userId: number; reg: Registry; allowed: Set<string> };
+/** `userMessage` is what the attorney said this turn: the iMessage tool only runs when they asked for a text. */
+export type ToolCtx = { matterId: number; userId: number; reg: Registry; allowed: Set<string>; userMessage: string };
 
 export async function runTool(name: string, args: Record<string, unknown>, ctx: ToolCtx): Promise<{ result: unknown; actions: Action[] }> {
   const { matterId, reg } = ctx;
@@ -141,6 +147,23 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
         result: { ok: true, saved: "draft saved for review; not sent" },
         actions: [{ type: "draft", draft: { id: Number(row.id), kind, recipient: to, body, at: row.at.toISOString() } }],
       };
+    }
+    case "send_imessage": {
+      // Record text can contain instructions; only the attorney's own words this turn can trigger a send.
+      if (!/\b(i ?message|text|message|send|phone)\b/i.test(ctx.userMessage)) {
+        return { result: { error: "Not sent: the attorney did not ask for a text in this message." }, actions: [] };
+      }
+      if (!imessageTarget()) return { result: { error: "Not sent: no iMessage number is set up (IMESSAGE_TO)." }, actions: [] };
+      // Same checks as speech: markers removed, and no number a tool did not return.
+      const { done, rest } = splitSentences(String(args.body ?? ""));
+      const text = [...done, rest].map((x) => extractCites(x).text).filter((x) => /[a-z0-9]/i.test(x)).join(" ").slice(0, 2000);
+      if (!text) return { result: { error: "Empty message" }, actions: [] };
+      const bad = unsupported(text, ctx.allowed);
+      if (bad.length) return { result: { error: `Not sent: it has numbers no tool returned (${bad.join(", ")}). Remove them or look them up first.` }, actions: [] };
+      const r = await sendIMessage(text);
+      if (!r.ok) return { result: { error: `Not sent: ${r.error}` }, actions: [] };
+      await q("INSERT INTO outbox (matter_id, reason, recipient, subject, body) VALUES ($1,'imessage',$2,'Case summary by iMessage',$3)", [matterId, r.to, text]).catch(() => {});
+      return { result: { ok: true, sent: "texted to the attorney's phone" }, actions: [{ type: "sent", channel: "imessage", to: r.to, body: text }] };
     }
     default:
       return { result: { error: `Unknown tool ${name}` }, actions: [] };
