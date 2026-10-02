@@ -34,7 +34,7 @@ Team: two people, each running two coding sessions. Four lanes: pipeline, firm s
 
 | Name | What for | Needed by |
 |---|---|---|
-| `CLIO_CLIENT_ID`, `CLIO_CLIENT_SECRET` | Reading the case. Clio developer app, redirect `http://localhost:3000/api/clio/callback`, read-only scopes | Now |
+| `CLIO_CLIENT_ID`, `CLIO_CLIENT_SECRET` | Reading the case. Clio developer app, redirect `http://127.0.0.1:3000/api/clio/callback`, read-only scopes | Now |
 | `GMI_API_KEY` | All model calls | Now |
 | `GMI_BASE_URL` | `https://api.gmi-serving.com/v1` | Now |
 | `LLM_MODEL`, `LLM_MODEL_FAST` | Model IDs picked from GMI's `/models` list (prefer a Claude model for the main one) | Now |

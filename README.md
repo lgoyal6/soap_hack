@@ -11,7 +11,7 @@ Built for the Swans Applied AI Hackathon. What we are building: `HANDOFF.md`. Wh
 cp .env.example .env        # then fill in the values
 docker compose up -d        # Postgres with the schema in db/
 npm install
-npm run dev                 # http://localhost:3000
+npm run dev                 # http://127.0.0.1:3000  (not localhost: Clio only redirects to 127.0.0.1)
 ```
 
 Sign in with Clio at `/login`, then press "Sync from Clio".

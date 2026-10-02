@@ -122,7 +122,7 @@ Tijil's `getOpenItems` reads them. Neither calls the other's code.
 - With the GMI key: list the models, pick `LLM_MODEL` and `LLM_MODEL_FAST`, send one test request with a tool attached, and check whether a text-to-speech model is callable. Send Tijil the model IDs.
 
 **Meanwhile, Tijil (the person):**
-- Create the Clio developer app (redirect `http://localhost:3000/api/clio/callback`, read-only scopes) and put the ID and secret in `.env`.
+- Create the Clio developer app (redirect `http://127.0.0.1:3000/api/clio/callback`, read-only scopes) and put the ID and secret in `.env`.
 - Generate `SESSION_SECRET`.
 
 ## The four lanes
