@@ -30,6 +30,19 @@ Drafts go through the same check; a draft with an unsupported number is refused 
   default `alloy`). If `TTS_MODEL` is empty or the call fails, it answers 204 and the browser's own voice is used.
   The "Speak" box turns speech off; captions and page movement still work.
 
+## Text a summary to your phone (iMessage)
+
+Say or type "text me a summary" and the agent gathers the facts, then calls `send_imessage`.
+`lib/voice/imessage.ts` sends it with `osascript` through Messages.app on the Mac running `npm run dev`.
+
+- The recipient is only `IMESSAGE_TO` from `.env` (your phone number or Apple ID email). The model cannot pick it.
+- It sends only when the attorney's own message this turn asks for a text, so instructions inside case records cannot trigger it.
+- The text goes through the same number check as speech and has the source markers removed.
+- Each send is logged in `outbox` with reason `imessage` (hidden from the provider outbox list).
+- First send: macOS asks whether Terminal (or your editor) may control Messages. Allow it, or enable it later in
+  System Settings > Privacy & Security > Automation. Messages must be signed in to iMessage.
+- Not on a Mac, or `IMESSAGE_TO` empty: the tool refuses and the agent says it could not send.
+
 ## Memory, drafts, logs
 
 - Conversation history is kept per firm user and case on the server, so follow-ups work. "New conversation" clears it.
@@ -40,7 +53,7 @@ Drafts go through the same check; a draft with an unsupported number is refused 
 
 ## Env
 
-`GMI_API_KEY`, `GMI_BASE_URL`, `LLM_MODEL`; optional `TTS_MODEL`, `TTS_VOICE`.
+`GMI_API_KEY`, `GMI_BASE_URL`, `LLM_MODEL`; optional `TTS_MODEL`, `TTS_VOICE`, `IMESSAGE_TO`.
 
 ## Test
 

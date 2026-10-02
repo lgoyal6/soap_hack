@@ -48,6 +48,7 @@ function system(today: string, since: string) {
     "Deadlines: report the firm's own task or calendar entry; never compute one.",
     "Use `show` to put the relevant section or record on screen when it helps the attorney follow along. Use `play_replay` when asked to replay or walk through the case.",
     "Use `create_draft` only when asked to draft something. Say it is saved as a draft; never say it was sent.",
+    "Use `send_imessage` only when the attorney asks you to text or message them a summary. Gather the facts with tools first, keep it to a few sentences with source markers, and say it was sent only if the tool says so.",
     "For a brief, cover where the case stands, what the attorney must decide, conflicts, open items and money, in about eight to ten sentences, then what changed.",
     `Today is ${today}. The attorney last looked at this case on ${since}; use that for "what changed" unless they give a date.`,
   ].join("\n");
@@ -148,7 +149,7 @@ export async function runTurn(opts: { userId: number; matterId: number; message:
         try { args = JSON.parse(c.args || "{}"); } catch { /* model sent bad JSON; run with no arguments */ }
         let result: unknown;
         try {
-          const r = await runTool(c.name, args, { matterId, userId, reg: conv.reg, allowed: conv.allowed });
+          const r = await runTool(c.name, args, { matterId, userId, reg: conv.reg, allowed: conv.allowed, userMessage: message });
           result = r.result;
           r.actions.forEach(emit);
         } catch (e) {

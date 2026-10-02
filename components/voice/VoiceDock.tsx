@@ -8,7 +8,7 @@ import { EVENTS, type SectionName, type SourceRef } from "@/lib/contracts";
 type Sentence = { text: string; sources: SourceRef[]; section: SectionName | null };
 type Line =
   | { kind: "user"; text: string }
-  | { kind: "answer"; sentences: Sentence[]; withheld: number; error?: string };
+  | { kind: "answer"; sentences: Sentence[]; withheld: number; error?: string; sent?: string };
 type Draft = { id: number; kind: string; recipient: string | null; body: string; at: string };
 type Status = "idle" | "listening" | "thinking" | "speaking";
 
@@ -21,7 +21,7 @@ const TOOL_LABEL: Record<string, string> = {
   get_money: "Checking the money", get_not_done: "Checking what is not done", get_changes: "Checking what changed",
   search_records: "Searching the records", get_related: "Looking up who is involved", get_record: "Opening a record",
   list_providers: "Listing providers", get_timeline: "Reading the timeline", show: "Showing it on the page",
-  play_replay: "Starting the replay", create_draft: "Saving a draft",
+  play_replay: "Starting the replay", create_draft: "Saving a draft", send_imessage: "Texting you",
 };
 
 const fire = (name: string, detail: object) => window.dispatchEvent(new CustomEvent(name, { detail }));
@@ -171,6 +171,7 @@ export default function VoiceDock({ matterId }: { matterId: number }) {
           else if (e.type === "show") fire(EVENTS.show, { section: e.section, source: e.source });
           else if (e.type === "replay") fire(EVENTS.replay, { from: e.from, to: e.to });
           else if (e.type === "draft") { setDrafts((d) => [e.draft, ...d]); setShowDrafts(true); }
+          else if (e.type === "sent") patch((a) => ({ ...a, sent: e.body }));
           else if (e.type === "error") patch((a) => ({ ...a, error: e.message }));
           else if (e.type === "done") { turn.current.id = e.turnId; if (turn.current.firstAudio !== null) reportFirstAudio(); }
         }
@@ -268,6 +269,7 @@ export default function VoiceDock({ matterId }: { matterId: number }) {
                   </span>
                 ))}
                 {l.withheld > 0 && <p className="text-sm text-neutral-600">{l.withheld === 1 ? "One sentence was" : "Some sentences were"} withheld: it stated a number no record supports.</p>}
+                {l.sent && <p className="mt-1 rounded bg-green-50 px-2 py-1 text-sm">Texted to your phone: &ldquo;{l.sent}&rdquo;</p>}
                 {l.error && <p className="text-sm text-red-700">{l.error}</p>}
               </div>
             ))}
