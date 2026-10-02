@@ -70,3 +70,7 @@ export function itemCount(payload: unknown): number {
   if (payload && typeof payload === "object") return Object.values(payload).some((v) => v !== null && v !== undefined) ? 1 : 0;
   return payload === null || payload === undefined ? 0 : 1;
 }
+
+/** The amount both sides agreed, once the lien is accepted. */
+export const agreedAmount = (l: Lien) =>
+  l.status === "accepted" ? [...l.history].reverse().find((h) => h.action === "accept" || h.action === "accept_counter")?.amount ?? null : null;

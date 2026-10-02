@@ -3,7 +3,7 @@
 "use client";
 
 import { useState } from "react";
-import { REPLIES, type Lien, type ProviderCase, type ReplyKind, type ReplyRow, type SharedItem } from "@/lib/portal/types";
+import { agreedAmount, REPLIES, type Lien, type ProviderCase, type ReplyKind, type ReplyRow, type SharedItem } from "@/lib/portal/types";
 
 const usd = (n: unknown) => (typeof n === "number" ? n.toLocaleString("en-US", { style: "currency", currency: "USD" }) : "amount not stated");
 const day = (iso: string | null | undefined) => (iso ? new Date(iso.length === 10 ? `${iso}T12:00:00Z` : iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "");
@@ -147,7 +147,7 @@ function LienBox({ matterId, lien, onChange }: { matterId: number; lien: Lien | 
   return (
     <section className="rounded-lg border border-neutral-300 bg-white p-4">
       <h3 className="mb-2 text-xl font-bold">Your balance and lien</h3>
-      {lien ? <p><b>{usd(lien.balance)}</b> · {STATUS[lien.status]}</p> : <p className="text-neutral-600">You have not confirmed a balance on this case.</p>}
+      {lien ? <p><b>{usd(lien.balance)}</b> · {STATUS[lien.status]}{agreedAmount(lien) !== null ? ` at ${usd(agreedAmount(lien))}` : ""}</p> : <p className="text-neutral-600">You have not confirmed a balance on this case.</p>}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <input inputMode="decimal" placeholder="Amount" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} className="w-40 rounded border border-neutral-400 px-2 py-1" />
         <button onClick={() => step("confirm")} className="rounded bg-black px-3 py-1.5 font-semibold text-white">Confirm unpaid balance</button>

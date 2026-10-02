@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useState } from "react";
 import CaseView, { LienHistory } from "@/components/provider/CaseView";
 import type { ShareCategory } from "@/lib/contracts";
-import { CATEGORIES, CATEGORY_LABEL, REPLIES, type ProviderShare, type SharePanelData } from "@/lib/portal/types";
+import { agreedAmount, CATEGORIES, CATEGORY_LABEL, REPLIES, type ProviderShare, type SharePanelData } from "@/lib/portal/types";
 
 const when = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "never");
 const usd = (n: number | null | undefined) => (typeof n === "number" ? n.toLocaleString("en-US", { style: "currency", currency: "USD" }) : "not confirmed");
@@ -170,7 +170,7 @@ function Detail({ p, matterId, code, onCode, onRevoke, onLien }: {
         <h4 className="font-semibold">Lien</h4>
         {!p.lien ? <p className="text-neutral-600">The provider has not confirmed a balance.</p> : (
           <>
-            <p>Balance {usd(p.lien.balance)} · {p.lien.status.replace(/_/g, " ")}</p>
+            <p>Balance {usd(p.lien.balance)} · {p.lien.status.replace(/_/g, " ")}{agreedAmount(p.lien) !== null ? ` at ${usd(agreedAmount(p.lien))}` : ""}</p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {(p.lien.status === "balance_confirmed" || p.lien.status === "countered") && <>
                 <input inputMode="decimal" placeholder="Amount" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} className="w-40 rounded border border-neutral-400 px-2 py-1" />
