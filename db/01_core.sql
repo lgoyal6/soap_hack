@@ -52,15 +52,6 @@ CREATE TABLE facts (
 );
 CREATE INDEX ON facts (matter_id, type);
 
--- Per communication: who it is with, what about, request or reply.
-CREATE TABLE comm_tags (
-  clio_id      bigint PRIMARY KEY,
-  counterparty text,
-  topic        text,
-  is_request   boolean NOT NULL DEFAULT false,
-  answers_id   bigint,                  -- the earlier request this one answers
-  source_hash  text NOT NULL
-);
 
 -- Case graph.
 CREATE TABLE nodes (

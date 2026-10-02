@@ -42,6 +42,7 @@ CREATE TABLE shared_items (
 CREATE TABLE provider_replies (
   id           bigserial PRIMARY KEY,
   shared_item_id bigint NOT NULL REFERENCES shared_items(id) ON DELETE CASCADE,
+  request_id   text NOT NULL,          -- the open item id from getShareable().requests (e.g. "open-...")
   provider_node_id bigint NOT NULL,
   reply        text NOT NULL,           -- sending_by | waiting_on_patient | balance_holding | not_proceeding
   reply_date   date,
