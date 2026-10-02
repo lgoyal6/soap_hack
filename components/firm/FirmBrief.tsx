@@ -11,6 +11,7 @@ import type {
   Change, ChipsDetail, Conflict, Matter, Money, NotDone, OpenItem, RecordDetail, ShowDetail, SourceRef, Summary, TimelineEvent, ToolResult,
 } from "@/lib/contracts";
 import type { TopEntry } from "@/lib/pipeline/rank";
+import ClientPhoto from "./ClientPhoto";
 import Replay from "./Replay";
 
 export type BriefData = {
@@ -136,9 +137,7 @@ export default function FirmBrief(initial: BriefData) {
     <div className="mx-auto max-w-6xl space-y-5 p-5 text-lg text-black">
       {/* 1. Top bar */}
       <header className="flex flex-wrap items-center gap-5 rounded-lg border border-neutral-300 bg-white p-5">
-        {h.photoDocumentId
-          ? <object data={`/api/case/photo?documentId=${h.photoDocumentId}#toolbar=0&navpanes=0&view=Fit`} type="application/pdf" className="h-28 w-24 rounded border border-neutral-300" aria-label="Client photo" />
-          : <div className="flex h-28 w-24 items-center justify-center rounded border border-neutral-300 text-sm text-neutral-500">no photo</div>}
+        <ClientPhoto documentId={h.photoDocumentId} name={h.clientName || matter.client} />
         <div className="min-w-64 flex-1">
           <h1 className="text-3xl font-bold">{h.clientName || matter.client}</h1>
           <p className="text-neutral-700">{matter.name}</p>

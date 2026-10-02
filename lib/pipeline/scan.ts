@@ -40,7 +40,7 @@ async function textLayers(bytes: Uint8Array): Promise<string[]> {
 }
 
 /** A scanned page is usually one JPEG stored inside the PDF; pull it out as-is. */
-function embeddedJpeg(doc: PDFDocument, pageIndex: number): Uint8Array | null {
+export function embeddedJpeg(doc: PDFDocument, pageIndex: number): Uint8Array | null {
   const xobjects = doc.getPage(pageIndex).node.Resources()?.lookupMaybe(PDFName.of("XObject"), PDFDict);
   let best: Uint8Array | null = null;
   for (const [, ref] of xobjects?.entries() ?? []) {
