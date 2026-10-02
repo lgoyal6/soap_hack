@@ -177,8 +177,14 @@ export async function processMatter(matterId: number): Promise<ProcessReport> {
   await writeSection(matterId, "not_done", today, notDone);
 
   // ---- 5. Money (code) --------------------------------------------------------
-  const expenses = recs.filter((r) => r.resource === "activities" && /expense/i.test(String(r.data.type ?? "")));
-  const spend = expenses.reduce((s, e) => s + (Number(e.data.total ?? e.data.price) || 0), 0);
+  // Clio keeps two kinds of expense entry on a matter: the firm's own case costs (billable), and charges
+  // recorded for someone else, such as a provider's bills (non-billable). Only the first is firm spend.
+  const expenseEntries = recs.filter((r) => r.resource === "activities" && /expense/i.test(String(r.data.type ?? "")));
+  const amountOf = (e: Rec) => Number(e.data.total ?? e.data.non_billable_total ?? e.data.price) || 0;
+  const expenses = expenseEntries.filter((e) => !e.data.non_billable);
+  const charges = expenseEntries.filter((e) => e.data.non_billable);
+  const spend = expenses.reduce((s, e) => s + amountOf(e), 0);
+  const charged = charges.reduce((s, e) => s + amountOf(e), 0);
   const where = (f: FactRow) => `${byKey.get(key({ resource: f.resource, clioId: f.clio_id }))?.title ?? f.resource}${f.fact_date ? `, ${f.fact_date.slice(0, 10)}` : ""}`;
   const coverage = facts.filter((f) => f.type === "coverage" && f.value?.amount != null);
   const liens = facts.filter((f) => f.type === "amount" && f.value?.category === "lien" && f.value?.amount != null);
@@ -188,6 +194,7 @@ export async function processMatter(matterId: number): Promise<ProcessReport> {
     ...fields.filter((f) => f.data.field_type === "currency" && !Number.isNaN(Number(f.text))).map((f) => ({ label: f.title, amount: Number(f.text), foundation: "the firm's own field", sources: [ref(f)] })),
     ...[...new Map(coverage.map((f) => [f.value.amount as number, f])).values()].map((f) => ({ label: "Coverage limit", amount: f.value.amount as number, foundation: where(f), sources: [factRef(f)] })),
     ...lienLatest.map((f) => ({ label: "Lien", amount: f.value.amount as number, foundation: where(f), sources: [factRef(f)] })),
+    ...(charges.length ? [{ label: "Charges recorded on the file", amount: charged, foundation: `sum of ${charges.length} non-billable entries (not firm costs)`, sources: charges.map((e) => ref(e)) }] : []),
     { label: "Firm spend", amount: spend, foundation: `sum of ${expenses.length} expense entries`, sources: expenses.map((e) => ref(e)) },
   ];
   const lowest = coverage.length ? Math.min(...coverage.map((f) => f.value.amount as number)) : null;
@@ -206,7 +213,7 @@ export async function processMatter(matterId: number): Promise<ProcessReport> {
   const timeline: TimelineEvent[] = [
     ...recs.filter((r) => r.date && r.resource !== "documents").map((r) => ({
       date: r.date!.slice(0, 10), lane: laneFor(r), title: r.title,
-      ...(r.resource === "activities" ? { amount: Number(r.data.total ?? r.data.price) || 0 } : {}),
+      ...(r.resource === "activities" ? { amount: amountOf(r), amountKind: r.data.non_billable ? "charge" as const : "firm_cost" as const } : {}),
       sources: [ref(r)],
     })),
     // Events the file dates relative to the incident are placed on their real date.

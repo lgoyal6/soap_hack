@@ -176,10 +176,18 @@ export const liveTools: CaseTools = {
           [matterId],
         );
         const bills = rows.filter((r) => mine(String(r.value?.provider ?? "")));
+        // Charges the firm recorded for this provider as non-billable expense entries on the matter.
+        const recorded = (await loadRecords(matterId, ["activities"])).filter((r) => r.data.non_billable && mine(r.text));
         return {
           label: "Your bills as the firm holds them",
-          payload: bills.map((r) => ({ description: r.value.description ?? null, amount: r.value.amount })),
-          sources: bills.map((r): SourceRef => ({ resource: "documents", clioId: Number(r.clio_id), pageNo: Number(r.page_no), quote: r.quote })),
+          payload: [
+            ...recorded.map((r) => ({ description: r.title, amount: Number(r.data.non_billable_total ?? r.data.price) || 0, date: r.date?.slice(0, 10) ?? null })),
+            ...bills.map((r) => ({ description: r.value.description ?? null, amount: r.value.amount, date: null })),
+          ],
+          sources: [
+            ...recorded.map((r): SourceRef => ({ resource: "activities", clioId: r.clioId })),
+            ...bills.map((r): SourceRef => ({ resource: "documents", clioId: Number(r.clio_id), pageNo: Number(r.page_no), quote: r.quote })),
+          ],
         };
       })(),
       coverage: { label: "Insurance coverage", payload: coverage.map((c) => ({ amount: c.amount, basis: c.foundation })), sources: coverage.flatMap((c) => c.sources) },

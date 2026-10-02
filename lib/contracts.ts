@@ -68,7 +68,8 @@ export type Related = {
 };
 
 export type Lane = "medical" | "legal" | "money" | "communications";
-export type TimelineEvent = Sourced<{ date: string; lane: Lane; title: string; amount?: number }>;
+/** amountKind: "firm_cost" = money the firm paid out; "charge" = a bill recorded on the file that the firm did not pay (e.g. a provider's charges). */
+export type TimelineEvent = Sourced<{ date: string; lane: Lane; title: string; amount?: number; amountKind?: "firm_cost" | "charge" }>;
 
 export type RecordDetail = { resource: string; clioId: number; title: string; date: string | null; text: string; pageNo?: number };
 

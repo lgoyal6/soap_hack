@@ -59,7 +59,7 @@ const RESOURCES: Resource[] = [
   },
   {
     name: "activities", path: "activities",
-    fields: "id,etag,type,date,quantity,price,total,note,created_at,updated_at,matter{id},expense_category{id,name}",
+    fields: "id,etag,type,date,quantity,price,total,non_billable,non_billable_total,note,created_at,updated_at,matter{id},expense_category{id,name}",
     perMatter: (id) => ({ matter_id: id }), date: (r) => r.date,
   },
   {
@@ -82,10 +82,10 @@ async function fetchAll(res: Resource, extra: Record<string, string | number>): 
   try {
     return { rows: await clioList<Rec>(res.path, { fields: res.fields, ...extra }) };
   } catch (e) {
-    if (e instanceof ClioError && e.status === 400) {
-      return { rows: await clioList<Rec>(res.path, { fields: "id,etag", ...extra }), error: e.body.slice(0, 300) };
-    }
-    throw e;
+    if (!(e instanceof ClioError)) throw e;
+    // A rejected field list: retry with the bare minimum. Anything else: report it and carry on with the other resources.
+    const rows = e.status === 400 ? await clioList<Rec>(res.path, { fields: "id,etag", ...extra }).catch(() => []) : [];
+    return { rows, error: `${e.status} ${e.body.slice(0, 300)}` };
   }
 }
 
@@ -98,7 +98,7 @@ async function store(res: Resource, matterId: number | null, rows: Rec[]): Promi
        VALUES ($1,$2,$3,$4,$5,$6,$7)
        ON CONFLICT (resource, clio_id) DO UPDATE
          SET matter_id = $3, etag = $4, record_date = $5, data = $6, body_hash = $7, synced_at = now()
-         WHERE raw_records.etag IS DISTINCT FROM $4
+         WHERE raw_records.etag IS DISTINCT FROM $4 OR raw_records.data IS DISTINCT FROM $6::jsonb
        RETURNING clio_id`,
       [res.name, r.id, matterId, r.etag ?? null, (res.date(r) as string) || null, JSON.stringify(r), typeof body === "string" ? hash(body) : null],
     );
@@ -116,14 +116,15 @@ export async function runSync(): Promise<SyncReport> {
     if (error) cur.error = error;
   };
 
+  // Only matters Clio returned in this run are synced, never whatever else happens to be in the database.
+  const matterIds: number[] = [];
   for (const res of RESOURCES.filter((r) => !r.perMatter)) {
     const { rows, error } = await fetchAll(res, {});
     add(res.name, rows.length, await store(res, null, rows), error);
+    if (res.name === "matters") matterIds.push(...rows.map((r) => r.id));
   }
 
-  const matters = await q<{ clio_id: string }>("SELECT clio_id FROM raw_records WHERE resource = 'matters'");
-  for (const m of matters) {
-    const matterId = Number(m.clio_id);
+  for (const matterId of matterIds) {
     await q("UPDATE raw_records SET matter_id = clio_id WHERE resource = 'matters' AND clio_id = $1", [matterId]);
     for (const res of RESOURCES.filter((r) => r.perMatter)) {
       const { rows, error } = await fetchAll(res, res.perMatter!(matterId));

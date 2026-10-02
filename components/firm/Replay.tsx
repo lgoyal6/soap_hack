@@ -57,7 +57,10 @@ export default function Replay({ events, coverage, open }: { events: TimelineEve
   const x = (iso: string) => LEFT + ((t(iso) - start) / (end - start)) * (W - LEFT - RIGHT);
   const nowMs = start + progress * (end - start);
   const visible = shown.filter((e) => t(e.date) <= nowMs);
-  const spent = visible.reduce((s, e) => s + (e.amount ?? 0), 0);
+  const sum = (kind: "firm_cost" | "charge") => visible.filter((e) => (e.amountKind ?? "firm_cost") === kind).reduce((s, e) => s + (e.amount ?? 0), 0);
+  const spent = sum("firm_cost");
+  const charged = sum("charge");
+  const scale = Math.max(Number.isFinite(coverage) ? coverage : 0, shown.filter((e) => e.amountKind === "charge").reduce((s, e) => s + (e.amount ?? 0), 0), 1);
   const latest = visible[visible.length - 1];
   const H = TOP + LANES.length * ROW + 20;
 
@@ -85,9 +88,15 @@ export default function Replay({ events, coverage, open }: { events: TimelineEve
         {shown.length > 0 && <line x1={LEFT + progress * (W - LEFT - RIGHT)} x2={LEFT + progress * (W - LEFT - RIGHT)} y1={8} y2={H - 8} stroke="#000" strokeDasharray="4 4" />}
       </svg>
       <p className="min-h-7">{latest ? <><b>{latest.date}</b> &nbsp;{latest.title}</> : "Press Play to watch the case unfold."}</p>
-      <p className="text-base text-neutral-700">
-        Firm money recorded on the file so far: <b>{usd(spent)}</b>
-        {Number.isFinite(coverage) && <> &nbsp;·&nbsp; lowest coverage figure in the file: <b>{usd(coverage)}</b></>}
+      {/* Charges recorded on the file climbing against the lowest coverage figure found */}
+      <div className="relative mt-2 h-7 w-full rounded bg-neutral-200">
+        <div className={`h-7 rounded ${Number.isFinite(coverage) && charged > coverage ? "bg-red-700" : "bg-green-700"}`} style={{ width: `${Math.min(100, (charged / scale) * 100)}%` }} />
+        {Number.isFinite(coverage) && <div className="absolute top-0 h-7 border-l-4 border-black" style={{ left: `${Math.min(100, (coverage / scale) * 100)}%` }} title="Lowest coverage figure in the file" />}
+      </div>
+      <p className="mt-1 text-base text-neutral-700">
+        Charges recorded on the file so far: <b>{usd(charged)}</b>
+        {Number.isFinite(coverage) && <> &nbsp;·&nbsp; black line: lowest coverage figure in the file, <b>{usd(coverage)}</b></>}
+        &nbsp;·&nbsp; firm's own costs so far: <b>{usd(spent)}</b>
       </p>
     </section>
   );
