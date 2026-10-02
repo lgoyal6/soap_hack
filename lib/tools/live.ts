@@ -169,8 +169,19 @@ export const liveTools: CaseTools = {
         payload: requests.map((o) => ({ id: o.id, what: o.what, asks: o.asks, firstAsked: o.firstAsked, lastAsked: o.lastAsked })),
         sources: requests.flatMap((o) => o.sources),
       },
-      // ponytail: per-provider bills come from the scan job; empty until scan pages are read.
-      own_bills: { label: "Your bills as the firm holds them", payload: [], sources: [] },
+      // Charges read from the scanned documents, on pages that name this provider. Empty until the scan job has run.
+      own_bills: await (async () => {
+        const rows = await q<any>(
+          "SELECT value, quote, clio_id, page_no FROM facts WHERE matter_id = $1 AND resource = 'documents' AND type = 'amount' AND value->>'category' = 'bills'",
+          [matterId],
+        );
+        const bills = rows.filter((r) => mine(String(r.value?.provider ?? "")));
+        return {
+          label: "Your bills as the firm holds them",
+          payload: bills.map((r) => ({ description: r.value.description ?? null, amount: r.value.amount })),
+          sources: bills.map((r): SourceRef => ({ resource: "documents", clioId: Number(r.clio_id), pageNo: Number(r.page_no), quote: r.quote })),
+        };
+      })(),
       coverage: { label: "Insurance coverage", payload: coverage.map((c) => ({ amount: c.amount, basis: c.foundation })), sources: coverage.flatMap((c) => c.sources) },
       other_treaters: { label: "Other treating providers", payload: providers.filter((p) => p.nodeId !== providerNodeId).map((p) => ({ role: p.role })), sources: [] },
     };

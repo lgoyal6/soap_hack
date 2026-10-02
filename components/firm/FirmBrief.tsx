@@ -78,6 +78,7 @@ export default function FirmBrief(initial: BriefData) {
   const [flash, setFlash] = useState<string | null>(null);
   const [chips, setChips] = useState<SourceRef[]>([]);
   const [busy, setBusy] = useState("");
+  const [injuries, setInjuries] = useState<{ bodyPart: string; findings: { quote: string; source: SourceRef }[] }[]>([]);
   const { summary, conflicts, money, notDone, timeline } = initial;
   const h = summary.data.header;
 
@@ -105,6 +106,8 @@ export default function FirmBrief(initial: BriefData) {
     window.addEventListener(EVENTS.chips, onChips);
     return () => { window.removeEventListener(EVENTS.show, show); window.removeEventListener(EVENTS.chips, onChips); };
   }, [open]);
+
+  useEffect(() => { api<typeof injuries>("injuries").then((x) => Array.isArray(x) && setInjuries(x)).catch(() => {}); }, [api]);
 
   // Contract E: provider replies land in the database; re-read the open items so they appear without a reload.
   useEffect(() => {
@@ -151,7 +154,10 @@ export default function FirmBrief(initial: BriefData) {
           <dt className="font-semibold">Scan pages read</dt>
           <dd>{h.pagesRead.done} of {h.pagesRead.total}</dd>
         </dl>
-        <button onClick={sync} disabled={!!busy} className="rounded bg-black px-4 py-2 font-semibold text-white disabled:opacity-60">{busy || "Refresh from Clio"}</button>
+        <div className="flex flex-col gap-2">
+          <button onClick={sync} disabled={!!busy} className="rounded bg-black px-4 py-2 font-semibold text-white disabled:opacity-60">{busy || "Refresh from Clio"}</button>
+          <button onClick={() => fetch("/api/scan", { method: "POST" })} className="rounded border border-black px-4 py-2 font-semibold">Read the documents</button>
+        </div>
       </header>
 
       {/* 2. Summary */}
@@ -198,6 +204,18 @@ export default function FirmBrief(initial: BriefData) {
             <span className="ml-2 text-base">= {money.data.netToClient.inputs.map((x, i) => `${i ? " − " : ""}${x.label} ${usd(x.amount)}`).join("")}</span>
           )}
           <p className="text-base text-neutral-700">{money.data.netToClient.assumption}</p>
+        </div>
+      </Section>
+
+      <Section id="injuries" title="Injuries found in the file" count={injuries.length} flash={flash}>
+        {injuries.length === 0 && <p className="text-neutral-600">None extracted yet. Injuries appear as records and scan pages are read ({h.pagesRead.done} of {h.pagesRead.total} pages so far).</p>}
+        <div className="grid gap-3 md:grid-cols-2">
+          {injuries.map((g) => (
+            <div key={g.bodyPart} className="rounded border border-neutral-300 p-3">
+              <b className="capitalize">{g.bodyPart}</b>
+              {g.findings.map((f, i) => <p key={i} className="mt-1 text-base">&ldquo;{f.quote}&rdquo;<Sources refs={[f.source]} open={open} /></p>)}
+            </div>
+          ))}
         </div>
       </Section>
 
