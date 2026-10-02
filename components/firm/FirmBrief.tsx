@@ -14,6 +14,7 @@ import type {
 import type { TopEntry } from "@/lib/pipeline/rank";
 import Glance from "./Glance";
 import Replay from "./Replay";
+import VoiceOrb from "./VoiceOrb";
 
 export type BriefData = {
   matter: Matter; today: string; since: string;
@@ -272,11 +273,10 @@ export default function FirmBrief(initial: BriefData) {
 
       <section className="rounded-lg border border-neutral-300 bg-white p-5"><SharePanel matterId={matter.id} /></section>
 
-      {/* Voice dock, with the sources of what is being said shown next to it */}
-      <div className="fixed bottom-4 right-4 z-20 max-w-md space-y-2">
-        {chips.length > 0 && <div className="rounded-lg border border-blue-700 bg-white p-2 shadow"><span className="text-base">Sources for this answer:</span><Sources refs={chips.slice(0, 8)} open={open} /></div>}
-        <div className="max-h-[55vh] overflow-y-auto rounded-lg border border-black bg-white p-3 shadow-lg"><VoiceDock matterId={matter.id} /></div>
-      </div>
+      {/* Voice paralegal: an orb that opens the conversation; sources of what is being said appear above it */}
+      <VoiceOrb above={chips.length > 0 && <div className="rounded-2xl border border-blue-700 bg-white p-2 shadow"><span className="text-base">Sources for this answer:</span><Sources refs={chips.slice(0, 8)} open={open} /></div>}>
+        <VoiceDock matterId={matter.id} />
+      </VoiceOrb>
 
       {/* Source panel */}
       {source && (
