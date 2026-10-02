@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { q } from "@/lib/db";
 import { firmOnly } from "@/lib/tools/guard";
 import { tools } from "@/lib/tools";
+import { readSection } from "@/lib/pipeline/process";
 import { topTen } from "@/lib/pipeline/rank";
 
 export async function GET(req: Request, ctx: { params: Promise<{ tool: string }> }) {
@@ -36,6 +37,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ tool: string }>
       }
       return NextResponse.json([...by.values()]);
     }
+    case "glance": return NextResponse.json({ glance: await readSection(id, "glance"), witness: (await readSection(id, "witness")) ?? [] });
     case "topTen": return NextResponse.json(await topTen(id));
     case "getRecord": return NextResponse.json(await tools.getRecord({ resource: p.get("resource") ?? "", clioId: Number(p.get("clioId")), pageNo: Number(p.get("pageNo")) || undefined }));
     default: return NextResponse.json({ error: "unknown tool" }, { status: 404 });

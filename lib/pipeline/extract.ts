@@ -89,6 +89,18 @@ const lines = (facts: FactLine[]) => facts.map((f) => `[${f.id}] ${f.type} | ${f
 export const groupConflicts = (facts: FactLine[]) => (facts.length < 2 ? Promise.resolve([]) : chatJson<Group[]>("group_conflicts", CONFLICT_SYSTEM, lines(facts), MODEL));
 export const groupNotDone = (facts: FactLine[]) => (facts.length ? chatJson<Group[]>("group_not_done", NOT_DONE_SYSTEM, lines(facts), MODEL) : Promise.resolve([]));
 
+export type WitnessGroup = Group & { kind: "concern" | "strength" };
+
+const WITNESS_SYSTEM = `You are given facts from one case file, each with an id, a type, a subject, a date and a verbatim quote.
+An attorney wants to know how well the client will hold up as a witness. Using only these facts, list:
+- concerns: inconsistent accounts given by the client, history the client denied or did not disclose, conduct at examinations, claims that lack support, things the client promised and did not do;
+- strengths: facts that support the client's credibility or the genuineness of the injuries.
+Merge facts about the same point into one entry. Give each a short plain label. The label must not contain numbers.
+Do not judge the person; describe what the file shows. At most eight entries.
+Return only a JSON array: [{"label": "...", "kind": "concern", "fact_ids": [1, 2]}]`;
+
+export const groupWitness = (facts: FactLine[]) => (facts.length ? chatJson<WitnessGroup[]>("group_witness", WITNESS_SYSTEM, lines(facts), MODEL) : Promise.resolve([]));
+
 // ---- 4. Summary: two or three sentences, each tied to the items it rests on --------------------
 
 export type SummarySentence = { text: string; item_ids: string[] };

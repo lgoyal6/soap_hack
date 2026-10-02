@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { q } from "../db";
 import type { Conflict, Lane, Money, MoneyLine, NotDone, OpenItem, Party, SourceRef, Summary, TimelineEvent } from "../contracts";
 import { addDays, computeOpenItems, daysBetween, netToClient, norm, numbersIn, quoteFound, unsupportedNumbers, type CommIn, type CountIn, type TaskIn } from "./compute";
-import { extractFacts, groupConflicts, groupNotDone, tagThreads, writeSummary, type Group, type RawFact, type SummarySentence, type ThreadTag } from "./extract";
+import { extractFacts, groupConflicts, groupNotDone, groupWitness, tagThreads, writeSummary, type Group, type RawFact, type SummarySentence, type ThreadTag, type WitnessGroup } from "./extract";
 import { customFieldRecords, loadContacts, loadMatter, loadRecords, type Rec } from "./records";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -86,7 +86,8 @@ export async function processMatter(matterId: number): Promise<ProcessReport> {
   ];
   // A failed model call is never cached: the section is simply empty until the next run.
   const tags = await cached<ThreadTag[]>(matterId, "tags", sha(threadLines.join("\n")), () => tagThreads(threadLines)).catch(() => [] as ThreadTag[]);
-  const tagBy = new Map(tags.map((t) => [t.id, t]));
+  // Models sometimes return the bare record number instead of "resource:number"; match on the number.
+  const tagBy = new Map(tags.map((t) => [String(t.id).split(":").pop()!.trim(), t]));
   const slugs = [...new Set(tags.map((t) => t.thread))];
 
   // ---- 2. Facts, once per record ----------------------------------------------
@@ -134,13 +135,13 @@ export async function processMatter(matterId: number): Promise<ProcessReport> {
 
   // ---- 3. Open items (code) ---------------------------------------------------
   const commIn: CommIn[] = comms.flatMap((c) => {
-    const t = tagBy.get(key(c));
+    const t = tagBy.get(String(c.clioId));
     return t ? [{ clioId: c.clioId, date: c.date!, subject: c.title, direction: isOut(c) ? "out" as const : "in" as const, counterparty: partyNames(c), thread: t.thread, kind: t.kind, resolves: !!t.resolves, party: t.party }] : [];
   });
   // The limitations task is shown in the header from the firm's own entry, not as an open item.
   const solTaskId = Number(matter.statute_of_limitations?.id) || -1;
   const taskIn: TaskIn[] = tasks.filter((t) => t.clioId !== solTaskId).map((t) => {
-    const tag = tagBy.get(key(t));
+    const tag = tagBy.get(String(t.clioId));
     const forProvider = t.title.startsWith(PROVIDER_TASK_PREFIX);
     return {
       clioId: t.clioId, name: t.title, due: t.date, done: /complete/i.test(String(t.data.status ?? "")),
@@ -176,6 +177,39 @@ export async function processMatter(matterId: number): Promise<ProcessReport> {
   }).sort((a, b) => b.daysOpen - a.daysOpen);
   await writeSection(matterId, "not_done", today, notDone);
 
+  // ---- 4b. The client as a witness, and the at-a-glance facts -------------------
+  const witnessFacts = facts.filter((f) => ["position", "commitment", "missing", "frequency", "injury"].includes(f.type));
+  const witnessGroups = await cached<WitnessGroup[]>(matterId, "witness_groups", sha(JSON.stringify(witnessFacts.map(factLine))), () => groupWitness(witnessFacts.map(factLine))).catch(() => [] as WitnessGroup[]);
+  const witness = witnessGroups.flatMap((g, i) => {
+    const fs = pick(g);
+    if (!fs.length) return [];
+    return [{ id: `witness-${i + 1}`, kind: g.kind === "strength" ? "strength" : "concern", label: safeLabel(g.label, fs[0].subject ?? "see quotes"), quotes: fs.slice(0, 4).map((f) => ({ quote: f.quote, date: f.fact_date?.slice(0, 10) ?? null, source: factRef(f) })) }];
+  });
+  await writeSection(matterId, "witness", today, witness);
+
+  const clientContact = contacts.find((c) => c.isClient);
+  const field = (re: RegExp, type?: string) => fields.find((f) => re.test(f.title) && (!type || f.data.field_type === type));
+  const sourced = (f?: Rec) => (f ? { text: f.text, source: ref(f) } : null);
+  const dob = clientContact?.data.date_of_birth ? String(clientContact.data.date_of_birth).slice(0, 10) : null;
+  await writeSection(matterId, "glance", today, {
+    client: {
+      name: clientContact?.name ?? String(matter.client?.name ?? ""),
+      dateOfBirth: dob,
+      age: dob ? Math.floor(daysBetween(dob, today) / 365.25) : null,
+      employer: clientContact?.data.company?.name ?? null,
+      // Clio's title field often holds an honorific; only a real job title is worth showing.
+      title: /^(mr|mrs|ms|miss|mx|dr)\.?$/i.test(String(clientContact?.data.title ?? "").trim()) ? null : clientContact?.data.title ?? null,
+    },
+    accident: {
+      date: incidentDate,
+      daysSince: incidentDate ? daysBetween(incidentDate, today) : null,
+      dateSource: incidentField ? ref(incidentField) : null,
+      location: sourced(field(/location|where|scene/i)),
+      summary: sourced(field(/summary|description|narrative/i)),
+      liability: sourced(field(/liabil|fault/i)),
+    },
+  });
+
   // ---- 5. Money (code) --------------------------------------------------------
   // Clio keeps two kinds of expense entry on a matter: the firm's own case costs (billable), and charges
   // recorded for someone else, such as a provider's bills (non-billable). Only the first is firm spend.
@@ -187,23 +221,29 @@ export async function processMatter(matterId: number): Promise<ProcessReport> {
   const charged = charges.reduce((s, e) => s + amountOf(e), 0);
   const where = (f: FactRow) => `${byKey.get(key({ resource: f.resource, clioId: f.clio_id }))?.title ?? f.resource}${f.fact_date ? `, ${f.fact_date.slice(0, 10)}` : ""}`;
   const coverage = facts.filter((f) => f.type === "coverage" && f.value?.amount != null);
+  const coverageLabel = (f: FactRow) => `Coverage: ${(f.subject ?? "limit").replace(/^coverage-?/, "").replace(/-/g, " ").trim() || "limit"}`;
   const liens = facts.filter((f) => f.type === "amount" && f.value?.category === "lien" && f.value?.amount != null);
   // One line per distinct lien figure, latest statement of it.
   const lienLatest = [...new Map(liens.map((f) => [f.value.amount as number, f])).values()];
   const lines: MoneyLine[] = [
     ...fields.filter((f) => f.data.field_type === "currency" && !Number.isNaN(Number(f.text))).map((f) => ({ label: f.title, amount: Number(f.text), foundation: "the firm's own field", sources: [ref(f)] })),
-    ...[...new Map(coverage.map((f) => [f.value.amount as number, f])).values()].map((f) => ({ label: "Coverage limit", amount: f.value.amount as number, foundation: where(f), sources: [factRef(f)] })),
+    ...[...new Map(coverage.map((f) => [f.value.amount as number, f])).values()].map((f) => ({ label: coverageLabel(f), amount: f.value.amount as number, foundation: where(f), sources: [factRef(f)] })),
     ...lienLatest.map((f) => ({ label: "Lien", amount: f.value.amount as number, foundation: where(f), sources: [factRef(f)] })),
     ...(charges.length ? [{ label: "Charges recorded on the file", amount: charged, foundation: `sum of ${charges.length} non-billable entries (not firm costs)`, sources: charges.map((e) => ref(e)) }] : []),
     { label: "Firm spend", amount: spend, foundation: `sum of ${expenses.length} expense entries`, sources: expenses.map((e) => ref(e)) },
   ];
-  const lowest = coverage.length ? Math.min(...coverage.map((f) => f.value.amount as number)) : null;
+  // Which coverage a recovery would come from is the attorney's call. For the illustration, use the lowest
+  // figure described as the other side's liability coverage; if none is described that way, the highest figure found.
+  const liability = coverage.filter((f) => /liabil|defendant|bodily|third.?party|tortfeasor/i.test(`${f.subject ?? ""} ${f.quote}`));
+  const basis = liability.length ? liability.reduce((a, b) => ((a.value.amount as number) <= (b.value.amount as number) ? a : b))
+    : coverage.length ? coverage.reduce((a, b) => ((a.value.amount as number) >= (b.value.amount as number) ? a : b)) : null;
+  const lowest = basis ? (basis.value.amount as number) : null;
   const net = lowest === null ? null : netToClient(lowest, FEE_FRACTION, spend, lienLatest.map((f) => ({ label: "lien", amount: f.value.amount as number })));
   const money: Money = {
     lines,
     netToClient: {
       amount: net?.amount ?? null, formula: net?.formula ?? "", inputs: net?.inputs ?? [],
-      assumption: `Illustrative only. Recovery is taken as the lowest coverage figure found in the file; the fee is an assumed ${Math.round(FEE_FRACTION * 100)}% and is not in the file.`,
+      assumption: `Illustrative only. Recovery is taken as "${basis ? coverageLabel(basis) : "no coverage figure found"}"; the fee is an assumed ${Math.round(FEE_FRACTION * 100)}% and is not in the file.`,
     },
   };
   await writeSection(matterId, "money", today, money);

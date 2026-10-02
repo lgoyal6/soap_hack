@@ -161,7 +161,7 @@ export const liveTools: CaseTools = {
     const mine = (text: string) => words.some((w) => text.toLowerCase().includes(w));
     const requests = (await openItems(matterId)).filter((o) => o.party === "provider" && mine(o.waitingOn));
     const money = (await liveTools.getMoney(matterId)).data;
-    const coverage = money.lines.filter((l) => l.label === "Coverage limit");
+    const coverage = money.lines.filter((l) => l.label.startsWith("Coverage"));
     return {
       stage: { label: "Case stage", payload: { stage: matter?.matter_stage?.name ?? null, status: matter?.status ?? null }, sources: [] },
       requests: {

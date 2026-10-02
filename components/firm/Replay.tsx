@@ -91,11 +91,11 @@ export default function Replay({ events, coverage, open }: { events: TimelineEve
       {/* Charges recorded on the file climbing against the lowest coverage figure found */}
       <div className="relative mt-2 h-7 w-full rounded bg-neutral-200">
         <div className={`h-7 rounded ${Number.isFinite(coverage) && charged > coverage ? "bg-red-700" : "bg-green-700"}`} style={{ width: `${Math.min(100, (charged / scale) * 100)}%` }} />
-        {Number.isFinite(coverage) && <div className="absolute top-0 h-7 border-l-4 border-black" style={{ left: `${Math.min(100, (coverage / scale) * 100)}%` }} title="Lowest coverage figure in the file" />}
+        {Number.isFinite(coverage) && <div className="absolute top-0 h-7 border-l-4 border-black" style={{ left: `${Math.min(100, (coverage / scale) * 100)}%` }} title="Coverage figure used for the illustration" />}
       </div>
       <p className="mt-1 text-base text-neutral-700">
         Charges recorded on the file so far: <b>{usd(charged)}</b>
-        {Number.isFinite(coverage) && <> &nbsp;·&nbsp; black line: lowest coverage figure in the file, <b>{usd(coverage)}</b></>}
+        {Number.isFinite(coverage) && <> &nbsp;·&nbsp; black line: liability coverage figure in the file, <b>{usd(coverage)}</b></>}
         &nbsp;·&nbsp; firm's own costs so far: <b>{usd(spent)}</b>
       </p>
     </section>

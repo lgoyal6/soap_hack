@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { motion } from "motion/react";
 import SharePanel from "@/components/share/SharePanel";
 import VoiceDock from "@/components/voice/VoiceDock";
 import { EVENTS } from "@/lib/contracts";
@@ -11,7 +12,7 @@ import type {
   Change, ChipsDetail, Conflict, Matter, Money, NotDone, OpenItem, RecordDetail, ShowDetail, SourceRef, Summary, TimelineEvent, ToolResult,
 } from "@/lib/contracts";
 import type { TopEntry } from "@/lib/pipeline/rank";
-import ClientPhoto from "./ClientPhoto";
+import Glance from "./Glance";
 import Replay from "./Replay";
 
 export type BriefData = {
@@ -37,10 +38,11 @@ const PARTY: Record<string, string> = { us: "Us", client: "Client", provider: "P
 
 function Section({ id, title, count, flash, children }: { id: string; title: string; count?: number; flash: string | null; children: React.ReactNode }) {
   return (
-    <section id={`sec-${id}`} className={`scroll-mt-4 rounded-lg border border-neutral-300 p-5 transition-colors duration-700 ${flash === id ? "bg-yellow-100" : "bg-white"}`}>
+    <motion.section id={`sec-${id}`} initial={{ opacity: 0, y: 18 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-40px" }} transition={{ duration: 0.4 }}
+      className={`scroll-mt-4 rounded-2xl border border-neutral-300 p-6 shadow-sm transition-colors duration-700 ${flash === id ? "bg-yellow-100" : "bg-white"}`}>
       <h2 className="mb-3 text-2xl font-semibold">{title}{count !== undefined && <span className="ml-2 text-neutral-500">({count})</span>}</h2>
       {children}
-    </section>
+    </motion.section>
   );
 }
 
@@ -135,25 +137,15 @@ export default function FirmBrief(initial: BriefData) {
 
   return (
     <div className="mx-auto max-w-6xl space-y-5 p-5 text-lg text-black">
-      {/* 1. Top bar */}
-      <header className="flex flex-wrap items-center gap-5 rounded-lg border border-neutral-300 bg-white p-5">
-        <ClientPhoto documentId={h.photoDocumentId} name={h.clientName || matter.client} />
-        <div className="min-w-64 flex-1">
-          <h1 className="text-3xl font-bold">{h.clientName || matter.client}</h1>
-          <p className="text-neutral-700">{matter.name}</p>
-          <p className="mt-1"><b>Stage:</b> {h.stage ?? "not set"} &nbsp;·&nbsp; <b>Status:</b> {matter.status ?? "not set"}</p>
-        </div>
-        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-          <dt className="font-semibold">Last client contact</dt>
-          <dd>{h.lastClientContact ? <>{when(h.lastClientContact.date, today)}<Sources refs={h.lastClientContact.sources} open={open} /></> : "none found"}</dd>
-          <dt className="font-semibold">Filing deadline</dt>
-          <dd>{h.limitations ? <>{h.limitations.status}{h.limitations.date ? `, ${when(h.limitations.date, today)}` : ""}<Sources refs={h.limitations.sources} open={open} /></> : "no limitations entry found"}</dd>
-          <dt className="font-semibold">Firm has spent</dt>
-          <dd>{usd(h.firmSpend.amount)}<Sources refs={h.firmSpend.sources.slice(0, 1)} open={open} /></dd>
-          <dt className="font-semibold">Scan pages read</dt>
-          <dd>{h.pagesRead.done} of {h.pagesRead.total}</dd>
-        </dl>
-        <div className="flex flex-col gap-2">
+      {/* 1. At a glance: client, accident, injuries, and the client as a witness */}
+      <Glance matter={matter} header={h} injuries={injuries} lastContact={h.lastClientContact ? when(h.lastClientContact.date, today) : "none found"} open={open} />
+
+      {/* Status strip */}
+      <header className="flex flex-wrap items-center gap-x-8 gap-y-2 rounded-2xl border border-neutral-300 bg-white px-6 py-4">
+        <p><b>Filing deadline:</b> {h.limitations ? <>{h.limitations.status}{h.limitations.date ? `, ${when(h.limitations.date, today)}` : ""}<Sources refs={h.limitations.sources} open={open} /></> : "no limitations entry found"}</p>
+        <p><b>Firm has spent:</b> {usd(h.firmSpend.amount)}<Sources refs={h.firmSpend.sources.slice(0, 1)} open={open} /></p>
+        <p><b>Document pages read:</b> {h.pagesRead.done} of {h.pagesRead.total}</p>
+        <div className="ml-auto flex gap-2">
           <button onClick={sync} disabled={!!busy} className="rounded bg-black px-4 py-2 font-semibold text-white disabled:opacity-60">{busy || "Refresh from Clio"}</button>
           <button onClick={() => fetch("/api/scan", { method: "POST" })} className="rounded border border-black px-4 py-2 font-semibold">Read the documents</button>
         </div>
@@ -276,7 +268,7 @@ export default function FirmBrief(initial: BriefData) {
         ))}
       </Section>
 
-      <Replay events={timeline.data} coverage={Math.min(...money.data.lines.filter((l) => l.label === "Coverage limit" && l.amount !== null).map((l) => l.amount as number))} open={open} />
+      <Replay events={timeline.data} coverage={money.data.netToClient.inputs.find((i) => i.label === "recovery")?.amount ?? Infinity} open={open} />
 
       <section className="rounded-lg border border-neutral-300 bg-white p-5"><SharePanel matterId={matter.id} /></section>
 

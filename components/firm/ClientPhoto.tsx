@@ -10,7 +10,8 @@ const SIZE = 112;
 export default function ClientPhoto({ documentId, name }: { documentId: number | null; name: string }) {
   const [box, setBox] = useState<Box | null>(null);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
-  const src = documentId ? `/api/case/photo?documentId=${documentId}` : null;
+  // v=2: an earlier version of this route answered with the whole document and browsers cached it.
+  const src = documentId ? `/api/case/photo?v=2&documentId=${documentId}` : null;
 
   useEffect(() => {
     if (!src) return;

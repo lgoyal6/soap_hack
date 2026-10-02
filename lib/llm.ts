@@ -4,7 +4,7 @@ import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/ch
 import { q } from "./db";
 
 // GMI Cloud speaks the OpenAI API; the model ids come from env, never from code.
-export const llm = new OpenAI({ apiKey: process.env.GMI_API_KEY || "missing", baseURL: process.env.GMI_BASE_URL, timeout: 90_000, maxRetries: 1 });
+export const llm = new OpenAI({ apiKey: process.env.GMI_API_KEY || "missing", baseURL: process.env.GMI_BASE_URL, timeout: 300_000, maxRetries: 1 });
 
 export const MODEL = process.env.LLM_MODEL ?? "";
 export const MODEL_FAST = process.env.LLM_MODEL_FAST || MODEL;

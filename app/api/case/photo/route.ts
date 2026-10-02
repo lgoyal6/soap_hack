@@ -39,7 +39,7 @@ export async function GET(req: Request) {
     // The face box is found once per picture and stored.
     const name = `photo_box:${id}`, hash = createHash("sha256").update(jpeg).digest("hex");
     const [row] = await q<{ data: Box }>("SELECT data FROM sections WHERE matter_id = 0 AND name = $1 AND input_hash = $2", [name, hash]);
-    if (row) return NextResponse.json(row.data);
+    if (row) return NextResponse.json(row.data, { headers: { "Cache-Control": "no-store" } });
     const res = await chat("photo_box", {
       temperature: 0,
       messages: [{ role: "user", content: [{ type: "text", text: BOX_PROMPT }, { type: "image_url", image_url: { url: `data:image/jpeg;base64,${Buffer.from(jpeg).toString("base64")}` } }] }],
@@ -53,7 +53,7 @@ export async function GET(req: Request) {
        ON CONFLICT (matter_id, name) DO UPDATE SET data = $2, input_hash = $3, built_at = now()`,
       [name, JSON.stringify(b), hash],
     );
-    return NextResponse.json(b);
+    return NextResponse.json(b, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 502 });
   }
