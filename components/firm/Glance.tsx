@@ -42,24 +42,25 @@ function spots(injuries: Injury[]): [number, number][] {
 }
 
 const LABEL: Record<string, string> = { head: "Head and brain", neck: "Neck", shoulder: "Shoulders", chest: "Chest", back: "Back and spine", elbow: "Elbows", wrist: "Wrists and hands", hip: "Hips", knee: "Knees", ankle: "Ankles and feet" };
-const isPrior = (inj: Injury) => /\bprior\b|pre-?existing|variant|developmental/i.test(inj.bodyPart);
+export const isPrior = (inj: Injury) => /\bprior\b|pre-?existing|variant|developmental/i.test(inj.bodyPart);
 
 /** One line per body region, with which side and the quotes behind it. Prior or developmental findings are kept apart. */
-function byRegion(injuries: Injury[]) {
+export function byRegion(injuries: Injury[]) {
   const out = new Map<string, { label: string; sides: Set<string>; findings: Injury["findings"] }>();
   for (const inj of injuries) {
-    const hits = REGIONS.filter((r) => r.words.test(inj.bodyPart));
-    for (const r of hits.length ? hits : [{ key: inj.bodyPart }]) {
+    // Findings that name no recognisable body region stay out of this short list (the full injuries section has them).
+    for (const r of REGIONS.filter((r) => r.words.test(inj.bodyPart))) {
       const g = out.get(r.key) ?? out.set(r.key, { label: LABEL[r.key] ?? inj.bodyPart, sides: new Set(), findings: [] }).get(r.key)!;
       if (/\bleft\b/i.test(inj.bodyPart)) g.sides.add("left");
       if (/\bright\b/i.test(inj.bodyPart)) g.sides.add("right");
       g.findings.push(...inj.findings);
     }
   }
-  return [...out.values()];
+  // Most-documented regions first.
+  return [...out.values()].sort((a, b) => b.findings.length - a.findings.length);
 }
 
-function BodyMap({ injuries }: { injuries: Injury[] }) {
+export function BodyMap({ injuries }: { injuries: Injury[] }) {
   const marks = spots(injuries);
   return (
     <svg viewBox="0 0 120 260" className="h-56 w-auto shrink-0" role="img" aria-label="Body figure with the injured areas marked">
@@ -82,7 +83,7 @@ function BodyMap({ injuries }: { injuries: Injury[] }) {
   );
 }
 
-function ago(days: number | null) {
+export function ago(days: number | null) {
   if (days === null) return "";
   const y = Math.floor(days / 365.25), m = Math.floor((days - y * 365.25) / 30.44);
   return [y ? `${y} year${y > 1 ? "s" : ""}` : "", m ? `${m} month${m > 1 ? "s" : ""}` : "", !y && !m ? `${days} days` : ""].filter(Boolean).join(" ") + " ago";

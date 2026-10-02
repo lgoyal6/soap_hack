@@ -6,7 +6,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Injury } from "@/components/firm/Glance";
+import VoiceOrb from "@/components/firm/VoiceOrb";
 import VoiceDock from "@/components/voice/VoiceDock";
+import Home90 from "./Home90";
 import { EVENTS, type Change, type OpenItem, type RecordDetail, type ShowDetail, type SourceRef, type ToolResult } from "@/lib/contracts";
 import type { TopEntry } from "@/lib/pipeline/rank";
 import type { SharePanelData } from "@/lib/portal/types";
@@ -42,6 +44,8 @@ export default function Dashboard(initial: DashData) {
   const { matter, matters } = initial;
   const [layout, setLayout] = useState<Layout>(DEFAULT);
   const [editing, setEditing] = useState(false);
+  // Home is the ninety-second read; the customisable tile grid is one click away.
+  const [grid, setGrid] = useState(false);
   const [tabs, setTabs] = useState<string[]>([]);
   const [active, setActive] = useState<string>("home");
   const [source, setSource] = useState<{ ref: SourceRef; detail: RecordDetail | null | undefined } | null>(null);
@@ -128,7 +132,8 @@ export default function Dashboard(initial: DashData) {
 
   const c: Ctx = { ...initial, openItems, top, changes, since, injuries, share, open, rate, setSince };
   const byId = useMemo(() => new Map(WIDGETS.map((w) => [w.id, w])), []);
-  const shown = layout.order.filter((id) => !layout.hidden.includes(id)).map((id) => byId.get(id)!).filter(Boolean);
+  // The paralegal is no longer a tile: it lives behind the orb at the bottom right of every view.
+  const shown = layout.order.filter((id) => !layout.hidden.includes(id) && id !== "voice").map((id) => byId.get(id)!).filter(Boolean);
   const hidden = layout.hidden.map((id) => byId.get(id)!).filter(Boolean);
   const activeWidget = active === "home" ? null : byId.get(active);
 
@@ -158,7 +163,8 @@ export default function Dashboard(initial: DashData) {
             </span>
           ))}
         </nav>
-        {active === "home" && <button onClick={() => setEditing(!editing)} className={`rounded px-3 py-1.5 font-semibold ${editing ? "bg-black text-white" : "border border-black"}`}>{editing ? "Done" : "Customise"}</button>}
+        {active === "home" && grid && <button onClick={() => { setGrid(false); setEditing(false); }} className="rounded border border-black px-3 py-1.5 font-semibold">Back to the brief</button>}
+        {active === "home" && grid && <button onClick={() => setEditing(!editing)} className={`rounded px-3 py-1.5 font-semibold ${editing ? "bg-black text-white" : "border border-black"}`}>{editing ? "Done" : "Customise"}</button>}
         <button onClick={sync} disabled={!!busy} className="rounded border border-black px-3 py-1.5 font-semibold disabled:opacity-50">{busy || "Refresh from Clio"}</button>
         <a href="/firm" className="px-2 text-sm text-neutral-600 underline">Classic page</a>
       </header>
@@ -173,8 +179,11 @@ export default function Dashboard(initial: DashData) {
       )}
 
       <main className="relative min-h-0 flex-1">
-        {/* Home grid. Kept mounted under tabs so the paralegal keeps listening and talking. */}
-        <div className={`${active === "home" ? "" : "hidden"} grid h-full auto-rows-[minmax(0,1fr)] grid-cols-1 gap-3 overflow-y-auto p-3 md:grid-cols-2 xl:grid-cols-4`}>
+        {/* Home: the ninety-second brief. */}
+        {active === "home" && !grid && <div className="h-full overflow-y-auto"><Home90 c={c} openTab={openTab} allTiles={() => setGrid(true)} /></div>}
+
+        {/* All tiles: the customisable grid. */}
+        <div className={`${active === "home" && grid ? "" : "hidden"} grid h-full auto-rows-[minmax(0,1fr)] grid-cols-1 gap-3 overflow-y-auto p-3 md:grid-cols-2 xl:grid-cols-4`}>
           {shown.map((w) => {
             const isVoice = w.id === "voice";
             const attention = w.alert?.(c);
@@ -197,7 +206,7 @@ export default function Dashboard(initial: DashData) {
                   {!editing && w.Full && <span className="ml-auto text-xs text-neutral-400">open ›</span>}
                 </div>
                 <div className={`min-h-0 flex-1 ${isVoice ? "overflow-y-auto" : "overflow-hidden"}`} onClick={isVoice ? (e) => e.stopPropagation() : undefined}>
-                  {isVoice ? <VoiceDock matterId={matter.id} /> : <w.Tile c={c} />}
+                  <w.Tile c={c} />
                 </div>
                 {!isVoice && <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-white" />}
               </section>
@@ -214,6 +223,9 @@ export default function Dashboard(initial: DashData) {
             </div>
           </div>
         )}
+
+        {/* The voice paralegal, behind the orb, mounted once for every view so hold-space always works. */}
+        <VoiceOrb><VoiceDock matterId={matter.id} /></VoiceOrb>
 
         {/* Source side panel: the record with the quoted words highlighted */}
         {source && (
