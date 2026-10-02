@@ -7,3 +7,4 @@ graphify-out/
 next-env.d.ts
 .DS_Store
 data/
+.claude/
