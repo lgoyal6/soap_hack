@@ -1,6 +1,5 @@
 -- Owner: Tijil. Pipeline tables.
 -- Applied on first `docker compose up`. Reset: docker compose down -v && docker compose up -d
-CREATE EXTENSION IF NOT EXISTS vector;
 
 -- Clio OAuth tokens for the connected firm account (one row).
 CREATE TABLE clio_tokens (
@@ -84,7 +83,7 @@ CREATE TABLE sections (
   PRIMARY KEY (matter_id, name)
 );
 
--- Search over records and scan pages. Embedding is optional.
+-- Keyword search over records and scan pages. (Add pgvector and an embedding column when an embedding key exists.)
 CREATE TABLE search_index (
   id        bigserial PRIMARY KEY,
   matter_id bigint NOT NULL,
@@ -94,7 +93,6 @@ CREATE TABLE search_index (
   title     text,
   body      text NOT NULL,
   tsv       tsvector GENERATED ALWAYS AS (to_tsvector('english', coalesce(title,'') || ' ' || body)) STORED,
-  embedding vector(1536),
   UNIQUE (resource, clio_id, page_no)
 );
 CREATE INDEX ON search_index USING gin (tsv);

@@ -1,12 +1,12 @@
 services:
   db:
-    image: pgvector/pgvector:pg16
+    image: postgres:16-alpine
     environment:
       POSTGRES_USER: casebrief
       POSTGRES_PASSWORD: casebrief
       POSTGRES_DB: casebrief
     ports:
-      - "5432:5432"
+      - "5433:5432"   # host 5433: many laptops already run a Postgres on 5432
     volumes:
       - ./db:/docker-entrypoint-initdb.d:ro
       - pgdata:/var/lib/postgresql/data

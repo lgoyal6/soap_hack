@@ -4,7 +4,7 @@ import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/ch
 import { q } from "./db";
 
 // GMI Cloud speaks the OpenAI API; the model ids come from env, never from code.
-export const llm = new OpenAI({ apiKey: process.env.GMI_API_KEY ?? "missing", baseURL: process.env.GMI_BASE_URL });
+export const llm = new OpenAI({ apiKey: process.env.GMI_API_KEY || "missing", baseURL: process.env.GMI_BASE_URL, timeout: 90_000, maxRetries: 1 });
 
 export const MODEL = process.env.LLM_MODEL ?? "";
 export const MODEL_FAST = process.env.LLM_MODEL_FAST || MODEL;
@@ -18,6 +18,7 @@ export async function logCall(purpose: string, model: string, inTok: number | un
 /** Non-streaming call, logged. For streaming, use `llm` directly and call `logCall` when the stream ends. */
 export async function chat(purpose: string, params: Omit<ChatCompletionCreateParamsNonStreaming, "model"> & { model?: string }) {
   const model = params.model ?? MODEL;
+  if (!process.env.GMI_API_KEY || !model) throw new Error("Model not configured: set GMI_API_KEY and LLM_MODEL in .env");
   const t = Date.now();
   const res = await llm.chat.completions.create({ ...params, model });
   await logCall(purpose, model, res.usage?.prompt_tokens, res.usage?.completion_tokens, Date.now() - t);

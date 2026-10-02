@@ -84,7 +84,8 @@ export async function processMatter(matterId: number): Promise<ProcessReport> {
     ...comms.map((c) => `[${key(c)}] ${c.date!.slice(0, 10)} ${isOut(c) ? "FIRM TO" : "TO FIRM FROM"} ${partyNames(c)} | ${c.title} | ${clip(String(c.data.body ?? ""), 500)}`),
     ...tasks.map((t) => `[${key(t)}] TASK (${t.data.status}) due ${t.date?.slice(0, 10) ?? "none"} | ${t.title} | ${clip(t.text, 300)}`),
   ];
-  const tags = await cached<ThreadTag[]>(matterId, "tags", sha(threadLines.join("\n")), () => tagThreads(threadLines));
+  // A failed model call is never cached: the section is simply empty until the next run.
+  const tags = await cached<ThreadTag[]>(matterId, "tags", sha(threadLines.join("\n")), () => tagThreads(threadLines)).catch(() => [] as ThreadTag[]);
   const tagBy = new Map(tags.map((t) => [t.id, t]));
   const slugs = [...new Set(tags.map((t) => t.thread))];
 
@@ -98,7 +99,9 @@ export async function processMatter(matterId: number): Promise<ProcessReport> {
   let dropped = 0;
 
   await inBatches(todo, 8, 4, async (batch) => {
-    const { facts, lanes } = await extractFacts(batch, slugs).catch(() => ({ facts: [] as RawFact[], lanes: [] }));
+    const res = await extractFacts(batch, slugs).catch(() => null);
+    if (!res) return; // left unmarked, so the next run retries these records
+    const { facts, lanes } = res as { facts: RawFact[]; lanes: { record: string; lane: Lane }[] };
     const laneBy = new Map(lanes.map((l) => [l.record, l.lane]));
     for (const r of batch) {
       const source = r.title + "\n" + r.text;
@@ -134,7 +137,9 @@ export async function processMatter(matterId: number): Promise<ProcessReport> {
     const t = tagBy.get(key(c));
     return t ? [{ clioId: c.clioId, date: c.date!, subject: c.title, direction: isOut(c) ? "out" as const : "in" as const, counterparty: partyNames(c), thread: t.thread, kind: t.kind, resolves: !!t.resolves, party: t.party }] : [];
   });
-  const taskIn: TaskIn[] = tasks.map((t) => {
+  // The limitations task is shown in the header from the firm's own entry, not as an open item.
+  const solTaskId = Number(matter.statute_of_limitations?.id) || -1;
+  const taskIn: TaskIn[] = tasks.filter((t) => t.clioId !== solTaskId).map((t) => {
     const tag = tagBy.get(key(t));
     const forProvider = t.title.startsWith(PROVIDER_TASK_PREFIX);
     return {
@@ -153,7 +158,7 @@ export async function processMatter(matterId: number): Promise<ProcessReport> {
   const pick = (g: Group) => [...new Set(g.fact_ids ?? [])].map((id) => factBy.get(Number(id))).filter((f): f is FactRow => !!f);
 
   const conflictFacts = facts.filter((f) => ["coverage", "amount", "count", "frequency", "position"].includes(f.type));
-  const conflictGroups = await cached<Group[]>(matterId, "conflict_groups", sha(JSON.stringify(conflictFacts.map(factLine))), () => groupConflicts(conflictFacts.map(factLine)).catch(() => []));
+  const conflictGroups = await cached<Group[]>(matterId, "conflict_groups", sha(JSON.stringify(conflictFacts.map(factLine))), () => groupConflicts(conflictFacts.map(factLine))).catch(() => [] as Group[]);
   const conflicts: Conflict[] = conflictGroups.flatMap((g, i) => {
     const fs = pick(g);
     if (new Set(fs.map((f) => norm(f.quote))).size < 2) return [];
@@ -162,7 +167,7 @@ export async function processMatter(matterId: number): Promise<ProcessReport> {
   await writeSection(matterId, "conflicts", today, conflicts);
 
   const ndFacts = facts.filter((f) => ["missing", "commitment", "done"].includes(f.type));
-  const ndGroups = await cached<Group[]>(matterId, "not_done_groups", sha(JSON.stringify(ndFacts.map(factLine))), () => groupNotDone(ndFacts.map(factLine)).catch(() => []));
+  const ndGroups = await cached<Group[]>(matterId, "not_done_groups", sha(JSON.stringify(ndFacts.map(factLine))), () => groupNotDone(ndFacts.map(factLine))).catch(() => [] as Group[]);
   const notDone: NotDone[] = ndGroups.flatMap((g, i) => {
     const fs = pick(g).filter((f) => f.type !== "done");
     const dated = fs.map((f) => f.fact_date).filter((d): d is string => !!d).sort();
@@ -235,7 +240,7 @@ export async function processMatter(matterId: number): Promise<ProcessReport> {
     ...notDone.map((n) => [n.id, n.sources] as [string, SourceRef[]]),
     ...decisions.map((f) => [`fact-${f.id}`, [factRef(f)]] as [string, SourceRef[]]),
   ]);
-  const written = await cached<SummarySentence[]>(matterId, "summary_sentences", sha(stateJson), () => writeSummary(stateJson).catch(() => []));
+  const written = await cached<SummarySentence[]>(matterId, "summary_sentences", sha(stateJson), () => writeSummary(stateJson)).catch(() => [] as SummarySentence[]);
   const sentences = written
     .map((s) => ({ text: s.text, sources: (s.item_ids ?? []).flatMap((id) => sourcesOf.get(id) ?? []) }))
     // Trust rule: no sentence without a source, and no number the computed state does not contain.
