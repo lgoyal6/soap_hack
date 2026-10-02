@@ -108,7 +108,7 @@ export default function VoiceDock({ matterId }: { matterId: number }) {
     const u = new SpeechSynthesisUtterance(s.text);
     // Use the most natural English voice this browser has, instead of its default (often the most robotic one).
     const voices = window.speechSynthesis.getVoices().filter((v) => v.lang.startsWith("en"));
-    const prefer = [/premium|enhanced|natural/i, /Google US English/i, /Samantha|Ava|Allison|Zoe|Karen|Moira|Serena/i];
+    const prefer = [/premium|enhanced|natural/i, /Google US English/i, /Samantha/i, /Ava|Allison|Zoe/i, /Karen|Moira|Serena/i];
     const voice = prefer.map((re) => voices.find((v) => re.test(v.name))).find(Boolean) ?? voices.find((v) => v.lang === "en-US");
     if (voice) u.voice = voice;
     u.rate = 0.98;
