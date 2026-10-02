@@ -116,6 +116,7 @@ CREATE TABLE firm_visits (
   user_id   bigint NOT NULL,
   matter_id bigint NOT NULL,
   at        timestamptz NOT NULL DEFAULT now(),
+  prev_at   timestamptz,               -- the visit before today's: what "since you last looked" compares against
   PRIMARY KEY (user_id, matter_id)
 );
 

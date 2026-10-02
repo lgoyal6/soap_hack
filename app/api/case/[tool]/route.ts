@@ -3,6 +3,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { tools } from "@/lib/tools";
+import { topTen } from "@/lib/pipeline/rank";
 
 export async function GET(req: Request, ctx: { params: Promise<{ tool: string }> }) {
   const s = await getSession();
@@ -22,6 +23,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ tool: string }>
     case "getChanges": return NextResponse.json(await tools.getChanges(id, p.get("since") ?? "1900-01-01"));
     case "searchRecords": return NextResponse.json(await tools.searchRecords(id, p.get("query") ?? ""));
     case "getRelated": return NextResponse.json(await tools.getRelated(id, p.get("entity") ?? ""));
+    case "topTen": return NextResponse.json(await topTen(id));
     case "getRecord": return NextResponse.json(await tools.getRecord({ resource: p.get("resource") ?? "", clioId: Number(p.get("clioId")), pageNo: Number(p.get("pageNo")) || undefined }));
     default: return NextResponse.json({ error: "unknown tool" }, { status: 404 });
   }
