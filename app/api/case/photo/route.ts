@@ -1,11 +1,11 @@
 // Owner: Tijil. Serves a document's bytes (used for the client photo). Firm users only.
 import { NextResponse } from "next/server";
 import { clioDownload } from "@/lib/clio";
-import { getSession } from "@/lib/session";
+import { firmOnly } from "@/lib/tools/guard";
 
 export async function GET(req: Request) {
-  const s = await getSession();
-  if (s?.role !== "firm") return NextResponse.json({ error: "firm sign-in required" }, { status: 401 });
+  const { deny } = await firmOnly();
+  if (deny) return deny;
   const id = Number(new URL(req.url).searchParams.get("documentId"));
   if (!id) return NextResponse.json({ error: "documentId required" }, { status: 400 });
   try {

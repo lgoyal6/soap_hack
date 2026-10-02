@@ -2,13 +2,13 @@
 // GET /api/case/getOpenItems?matterId=1   (also: since, query, entity)
 import { NextResponse } from "next/server";
 import { q } from "@/lib/db";
-import { getSession } from "@/lib/session";
+import { firmOnly } from "@/lib/tools/guard";
 import { tools } from "@/lib/tools";
 import { topTen } from "@/lib/pipeline/rank";
 
 export async function GET(req: Request, ctx: { params: Promise<{ tool: string }> }) {
-  const s = await getSession();
-  if (s?.role !== "firm") return NextResponse.json({ error: "firm sign-in required" }, { status: 401 });
+  const { deny } = await firmOnly();
+  if (deny) return deny;
   const { tool } = await ctx.params;
   const p = new URL(req.url).searchParams;
   const id = Number(p.get("matterId"));

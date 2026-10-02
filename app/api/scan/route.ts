@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { q } from "@/lib/db";
 import { scanMatter } from "@/lib/pipeline/scan";
-import { getSession } from "@/lib/session";
+import { firmOnly } from "@/lib/tools/guard";
 
 const running = new Set<number>();
 
@@ -14,14 +14,14 @@ async function progress() {
 }
 
 export async function GET() {
-  const s = await getSession();
-  if (s?.role !== "firm") return NextResponse.json({ error: "firm sign-in required" }, { status: 401 });
+  const { deny } = await firmOnly();
+  if (deny) return deny;
   return NextResponse.json(await progress());
 }
 
 export async function POST() {
-  const s = await getSession();
-  if (s?.role !== "firm") return NextResponse.json({ error: "firm sign-in required" }, { status: 401 });
+  const { deny } = await firmOnly();
+  if (deny) return deny;
   const matters = await q<{ clio_id: string }>("SELECT clio_id FROM raw_records WHERE resource = 'matters'");
   for (const m of matters) {
     const id = Number(m.clio_id);
