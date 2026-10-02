@@ -48,8 +48,8 @@ export const TOOL_DEFS: ChatCompletionTool[] = [
     to: { type: "string", description: "Recipient name or role" },
     body: { type: "string" },
   }, ["kind", "body"]),
-  fn("send_imessage", "Text a short case summary to the attorney's own phone by iMessage. Only when the attorney asks for it in this message. The recipient is fixed; you cannot choose it.", {
-    body: { type: "string", description: "Plain sentences built only from tool results, with [n] source markers. No markdown." },
+  fn("send_imessage", "Text something to the attorney's own phone by iMessage: a case summary, a list (open items, things not yet done, what changed), a reminder or to-do in the attorney's own words, or a draft. Only when the attorney asks for a text in this message. The recipient is fixed; you cannot choose it.", {
+    body: { type: "string", description: "Plain sentences. Case facts must come only from tool results, with [n] source markers. A reminder or to-do may repeat what the attorney just said. No markdown." },
   }, ["body"]),
 ];
 
@@ -167,7 +167,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       if (bad.length) return { result: { error: `Not sent: it has numbers no tool returned (${bad.join(", ")}). Remove them or look them up first.` }, actions: [] };
       const r = await sendIMessage(text);
       if (!r.ok) return { result: { error: `Not sent: ${r.error}` }, actions: [] };
-      await q("INSERT INTO outbox (matter_id, reason, recipient, subject, body) VALUES ($1,'imessage',$2,'Case summary by iMessage',$3)", [matterId, r.to, text]).catch(() => {});
+      await q("INSERT INTO outbox (matter_id, reason, recipient, subject, body) VALUES ($1,'imessage',$2,'Text to the attorney by iMessage',$3)", [matterId, r.to, text]).catch(() => {});
       return { result: { ok: true, sent: "texted to the attorney's phone" }, actions: [{ type: "sent", channel: "imessage", to: r.to, body: text }] };
     }
     default:
