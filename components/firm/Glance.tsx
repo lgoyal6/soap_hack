@@ -6,9 +6,11 @@ import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import type { Matter, SourceRef, Summary } from "@/lib/contracts";
 import ClientPhoto from "./ClientPhoto";
+import IncidentScene from "./IncidentScene";
 
 type Sourced = { text: string; source: SourceRef } | null;
 type GlanceData = {
+  incidentKind?: string;
   client: { name: string; dateOfBirth: string | null; age: number | null; employer: string | null; title: string | null };
   accident: { date: string | null; daysSince: number | null; dateSource: SourceRef | null; location: Sourced; summary: Sourced; liability: Sourced };
 };
@@ -141,6 +143,7 @@ export default function Glance({ matter, header, injuries, lastContact, open }: 
           <p className="text-xl text-neutral-700">{ago(g?.accident.daysSince ?? null)}</p>
           {g?.accident.location && <p className="mt-3"><b>Where:</b> {g.accident.location.text}<Src r={g.accident.location.source} open={open} /></p>}
           {g?.accident.summary && <p className="mt-2 text-xl">{g.accident.summary.text}<Src r={g.accident.summary.source} open={open} /></p>}
+          <IncidentScene kind={g?.incidentKind} />
           {g?.accident.liability && <p className="mt-2"><b>Liability:</b> {g.accident.liability.text}<Src r={g.accident.liability.source} open={open} /></p>}
           {!g && <p className="text-neutral-600">Read from Clio to fill this in.</p>}
         </motion.section>

@@ -8,11 +8,13 @@ import { motion } from "motion/react";
 import ClientPhoto from "@/components/firm/ClientPhoto";
 import { BodyMap, ago, byRegion, isPrior } from "@/components/firm/Glance";
 import type { SourceRef } from "@/lib/contracts";
+import IncidentScene from "@/components/firm/IncidentScene";
 import { usd, when, type Ctx } from "./widgets";
 
 type Sourced = { text: string; source: SourceRef } | null;
 type GlanceData = {
-  glance: { client: { age: number | null }; accident: { date: string | null; daysSince: number | null; location: Sourced; summary: Sourced } } | null;
+  news?: { since: string | null; records: number; sentences: { text: string; sources: SourceRef[] }[] };
+  glance: { incidentKind?: string; client: { age: number | null }; accident: { date: string | null; daysSince: number | null; location: Sourced; summary: Sourced } } | null;
   witness: { kind: "concern" | "strength" }[];
 };
 
@@ -41,7 +43,7 @@ function Attention({ title, count, rows, onOpen, i }: { title: string; count: nu
 }
 
 export default function Home90({ c, openTab, allTiles }: { c: Ctx; openTab: (id: string) => void; allTiles: () => void }) {
-  const { matter, summary, money, conflicts, notDone, openItems, changes, today } = c;
+  const { matter, summary, money, conflicts, notDone, openItems, today } = c;
   const h = summary.data.header;
   const [g, setG] = useState<GlanceData>({ glance: null, witness: [] });
   useEffect(() => {
@@ -67,6 +69,24 @@ export default function Home90({ c, openTab, allTiles }: { c: Ctx; openTab: (id:
 
   return (
     <div className="mx-auto flex max-w-[1500px] flex-col gap-3 p-3 text-lg">
+      {/* 0. What is new, said plainly: the first thing an attorney reopening the case wants */}
+      {(g.news?.sentences.length ?? 0) > 0 && (
+        <motion.div {...rise(0)} className={`${card} border-l-8 border-l-blue-700`}>
+          <div className="flex items-baseline gap-3">
+            <p className={kicker}>What is new</p>
+            <button onClick={() => openTab("changes")} className="ml-auto text-base text-neutral-500 underline">all {g.news!.records} recent records</button>
+          </div>
+          <ul className="mt-1 space-y-1">
+            {g.news!.sentences.slice(0, 3).map((n, i) => (
+              <li key={i} className="text-lg leading-snug">
+                {n.text}
+                {n.sources.slice(0, 2).map((r, k) => <button key={k} onClick={() => c.open(r)} className="ml-2 rounded border border-blue-700 px-1.5 align-middle text-sm font-medium text-blue-800 hover:bg-blue-50">source</button>)}
+              </li>
+            ))}
+          </ul>
+        </motion.div>
+      )}
+
       {/* 1. Who, what happened, what was hurt */}
       <div className="grid gap-4 lg:grid-cols-[1fr_1.4fr_1fr]">
         <motion.button {...rise(0)} onClick={() => openTab("client")} className={`${card} flex items-center gap-4 text-left hover:border-black`}>
@@ -84,6 +104,7 @@ export default function Home90({ c, openTab, allTiles }: { c: Ctx; openTab: (id:
           <p className="text-xl font-bold leading-snug">{acc?.summary?.text ?? matter.name}</p>
           <p className="mt-1 text-lg text-neutral-700">{longDate(acc?.date ?? null)}{acc?.daysSince != null ? ` · ${ago(acc.daysSince)}` : ""}</p>
           {acc?.location && <p className="text-neutral-700">{acc.location.text}</p>}
+          <div className="max-w-[280px]"><IncidentScene kind={g.glance?.incidentKind} /></div>
         </motion.div>
 
         <motion.button {...rise(2)} onClick={() => openTab("injuries")} className={`${card} flex items-center gap-4 text-left hover:border-black`}>
@@ -133,7 +154,7 @@ export default function Home90({ c, openTab, allTiles }: { c: Ctx; openTab: (id:
       {/* 5. Everything else is one click away */}
       <div className="flex flex-wrap items-center gap-2 pb-20">
         <span className="mr-1 text-neutral-600">More:</span>
-        {[["changes", `What is new (${changes.data.length})`], ["top_ten", "Entries that matter"], ["providers", "Providers"], ["replay", "Play the case replay"]].map(([id, label]) => (
+        {[["top_ten", "Entries that matter"], ["providers", "Providers"], ["replay", "Play the case replay"]].map(([id, label]) => (
           <button key={id} onClick={() => openTab(id)} className="rounded-full border border-black bg-white px-4 py-1.5 font-semibold hover:bg-neutral-100">{label}</button>
         ))}
         <button onClick={allTiles} className="rounded-full border border-neutral-400 bg-white px-4 py-1.5 text-neutral-700 hover:bg-neutral-100">All tiles</button>

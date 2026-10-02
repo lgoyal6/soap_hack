@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { q } from "../db";
 import type { Conflict, Lane, Money, MoneyLine, NotDone, OpenItem, Party, SourceRef, Summary, TimelineEvent } from "../contracts";
 import { addDays, computeOpenItems, daysBetween, netToClient, norm, numbersIn, quoteFound, unsupportedNumbers, type CommIn, type CountIn, type TaskIn } from "./compute";
-import { extractFacts, groupConflicts, groupNotDone, groupWitness, tagThreads, writeSummary, type Group, type RawFact, type SummarySentence, type ThreadTag, type WitnessGroup } from "./extract";
+import { classifyIncident, extractFacts, groupConflicts, groupNotDone, groupWitness, tagThreads, writeNews, writeSummary, type NewsSentence, type Group, type RawFact, type SummarySentence, type ThreadTag, type WitnessGroup } from "./extract";
 import { customFieldRecords, loadContacts, loadMatter, loadRecords, type Rec } from "./records";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -187,11 +187,27 @@ export async function processMatter(matterId: number): Promise<ProcessReport> {
   });
   await writeSection(matterId, "witness", today, witness);
 
+  // What has happened lately, said the way a colleague would say it (not as a log). Each sentence keeps its records.
+  const windowStart = addDays(today, -30);
+  const recent = recs.filter((r) => r.date && r.resource !== "documents" && r.date.slice(0, 10) >= windowStart && r.date.slice(0, 10) <= today).reverse();
+  const recentLines = recent.map((r) => `[${key(r)}] ${r.date!.slice(0, 10)} | ${r.title} | ${clip(r.text, 300)}`).join("\n");
+  const newsRaw = recent.length ? await cached<NewsSentence[]>(matterId, "news_sentences", sha(recentLines), () => writeNews(recentLines)).catch(() => [] as NewsSentence[]) : [];
+  const recentBy = new Map(recent.map((r) => [String(r.clioId), r]));
+  const news = newsRaw.map((n) => {
+    const rs = (n.record_ids ?? []).map((id) => recentBy.get(String(id).split(":").pop()!.trim())).filter((r): r is Rec => !!r);
+    return { text: n.text, sources: rs.map((r) => ref(r)), allowed: rs.map((r) => `${r.date} ${r.title} ${r.text}`) };
+  }).filter((n) => n.sources.length > 0 && unsupportedNumbers(n.text, n.allowed).length === 0)
+    .map(({ text, sources }) => ({ text, sources }));
+  await writeSection(matterId, "news", today, { since: windowStart, records: recent.length, sentences: news });
+
   const clientContact = contacts.find((c) => c.isClient);
   const field = (re: RegExp, type?: string) => fields.find((f) => re.test(f.title) && (!type || f.data.field_type === type));
   const sourced = (f?: Rec) => (f ? { text: f.text, source: ref(f) } : null);
   const dob = clientContact?.data.date_of_birth ? String(clientContact.data.date_of_birth).slice(0, 10) : null;
+  const describe = [field(/summary|description|narrative/i)?.text, field(/liabil|fault/i)?.text].filter(Boolean).join("\n");
+  const incident = describe ? await cached<{ kind: string }>(matterId, "incident_kind", sha(describe), () => classifyIncident(describe)).catch(() => ({ kind: "other" })) : { kind: "other" };
   await writeSection(matterId, "glance", today, {
+    incidentKind: incident.kind,
     client: {
       name: clientContact?.name ?? String(matter.client?.name ?? ""),
       dateOfBirth: dob,
@@ -287,7 +303,7 @@ export async function processMatter(matterId: number): Promise<ProcessReport> {
     ...notDone.map((n) => [n.id, n.sources] as [string, SourceRef[]]),
     ...decisions.map((f) => [`fact-${f.id}`, [factRef(f)]] as [string, SourceRef[]]),
   ]);
-  const written = await cached<SummarySentence[]>(matterId, "summary_sentences", sha(stateJson), () => writeSummary(stateJson)).catch(() => [] as SummarySentence[]);
+  const written = await cached<SummarySentence[]>(matterId, "summary_sentences_v2", sha(stateJson), () => writeSummary(stateJson)).catch(() => [] as SummarySentence[]);
   const sentences = written
     .map((s) => ({ text: s.text, sources: (s.item_ids ?? []).flatMap((id) => sourcesOf.get(id) ?? []) }))
     // Trust rule: no sentence without a source, and no number the computed state does not contain.

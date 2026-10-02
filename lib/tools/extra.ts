@@ -21,5 +21,9 @@ export async function getInjuries(matterId: number): Promise<Injury[]> {
 
 /** Who the client is, what happened and where, and how the client is likely to hold up as a witness. */
 export async function getGlance(matterId: number) {
-  return { glance: await readSection(matterId, "glance"), witness: (await readSection<unknown[]>(matterId, "witness")) ?? [] };
+  return {
+    glance: await readSection(matterId, "glance"),
+    witness: (await readSection<unknown[]>(matterId, "witness")) ?? [],
+    news: (await readSection(matterId, "news")) ?? { since: null, records: 0, sentences: [] },
+  };
 }

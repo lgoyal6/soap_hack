@@ -105,7 +105,25 @@ export const groupWitness = (facts: FactLine[]) => (facts.length ? chatJson<Witn
 
 export type SummarySentence = { text: string; item_ids: string[] };
 
-const SUMMARY_SYSTEM = `You brief a senior attorney on where a case stands, in at most three plain sentences.
+export type NewsSentence = { text: string; record_ids: string[] };
+
+const NEWS_SYSTEM = `You tell a senior attorney what has happened on a case recently, in plain English, the way a colleague would say it out loud.
+You are given the recent records, newest first, each with an id, a date, a title and its text.
+Write at most four short sentences, each at most twenty words, most important first. Group related records into one sentence. Say who did what and what it means for the case.
+Do not list records one by one, do not copy titles, and do not start sentences with dates.
+Use only what the records say. Write a number only if it appears in the records.
+Return only a JSON array: [{"text": "...", "record_ids": ["..."]}] where record_ids are the ids the sentence rests on.`;
+
+export const writeNews = (records: string) => chatJson<NewsSentence[]>("write_news", NEWS_SYSTEM, records, MODEL);
+
+export type IncidentKind = "sideswipe" | "rear_end" | "head_on" | "intersection" | "pedestrian" | "fall" | "other";
+
+const INCIDENT_SYSTEM = `Classify how the incident in a personal-injury case happened, from the firm's own description.
+Return only JSON {"kind": "..."} where kind is one of: "sideswipe" (two vehicles side by side, one moves into the other), "rear_end", "head_on", "intersection" (vehicles crossing paths or a turning vehicle), "pedestrian" (a vehicle hits a person on foot or on a bicycle), "fall" (slip, trip or fall), "other".`;
+
+export const classifyIncident = (description: string) => chatJson<{ kind: IncidentKind }>("classify_incident", INCIDENT_SYSTEM, description, MODEL_FAST);
+
+const SUMMARY_SYSTEM = `You brief a senior attorney on where a case stands, in exactly three short sentences of at most twenty words each: first what the case turns on, then what is stuck and on whom, then what the attorney has to decide.
 You are given the computed state of the file: open items, conflicts between records, things not yet done, and decisions waiting on the attorney. Each has an id.
 Say what the case turns on, what is stuck and on whom, and what the attorney has to decide. Use only what is given.
 Do not write any numbers, dates or amounts: the page shows those separately. No headings, no lists.
