@@ -42,7 +42,7 @@ function Attention({ title, count, rows, onOpen, i }: { title: string; count: nu
   );
 }
 
-export default function Home90({ c, openTab, allTiles }: { c: Ctx; openTab: (id: string) => void; allTiles: () => void }) {
+export default function Home90({ c, openTab }: { c: Ctx; openTab: (id: string) => void }) {
   const { matter, summary, money, conflicts, notDone, openItems, today } = c;
   const h = summary.data.header;
   const [g, setG] = useState<GlanceData>({ glance: null, witness: [] });
@@ -151,14 +151,8 @@ export default function Home90({ c, openTab, allTiles }: { c: Ctx; openTab: (id:
           rows={chased.slice(0, 3).map((x) => ({ main: `${x.waitingOn.split(/[ ,]+/).slice(0, 2).join(" ")}: ${x.what}`, side: x.asks > 1 ? `asked ${x.asks} times` : `${x.daysOpen} days` }))} />
       </div>
 
-      {/* 5. Everything else is one click away */}
-      <div className="flex flex-wrap items-center gap-2 pb-20">
-        <span className="mr-1 text-neutral-600">More:</span>
-        {[["top_ten", "Entries that matter"], ["providers", "Providers"], ["replay", "Play the case replay"]].map(([id, label]) => (
-          <button key={id} onClick={() => openTab(id)} className="rounded-full border border-black bg-white px-4 py-1.5 font-semibold hover:bg-neutral-100">{label}</button>
-        ))}
-        <button onClick={allTiles} className="rounded-full border border-neutral-400 bg-white px-4 py-1.5 text-neutral-700 hover:bg-neutral-100">All tiles</button>
-      </div>
+      {/* Other views (entries that matter, providers, replay, all tiles) are in the top bar. */}
+      <div className="pb-20" />
     </div>
   );
 }

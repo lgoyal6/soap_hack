@@ -163,6 +163,11 @@ export default function Dashboard(initial: DashData) {
             </span>
           ))}
         </nav>
+        {/* Shortcuts to the views that are not on the home screen */}
+        {[["top_ten", "Entries that matter"], ["providers", "Providers"], ["replay", "Play the case replay"]].map(([id, label]) => (
+          <button key={id} onClick={() => openTab(id)} className={`whitespace-nowrap rounded-full border px-3 py-1.5 font-semibold ${active === id ? "border-black bg-black text-white" : "border-black hover:bg-neutral-100"}`}>{label}</button>
+        ))}
+        {!(active === "home" && grid) && <button onClick={() => { setActive("home"); setGrid(true); }} className="whitespace-nowrap rounded-full border border-neutral-400 px-3 py-1.5 text-neutral-700 hover:bg-neutral-100">All tiles</button>}
         {active === "home" && grid && <button onClick={() => { setGrid(false); setEditing(false); }} className="rounded border border-black px-3 py-1.5 font-semibold">Back to the brief</button>}
         {active === "home" && grid && <button onClick={() => setEditing(!editing)} className={`rounded px-3 py-1.5 font-semibold ${editing ? "bg-black text-white" : "border border-black"}`}>{editing ? "Done" : "Customise"}</button>}
         <button onClick={sync} disabled={!!busy} className="rounded border border-black px-3 py-1.5 font-semibold disabled:opacity-50">{busy || "Refresh from Clio"}</button>
@@ -180,7 +185,7 @@ export default function Dashboard(initial: DashData) {
 
       <main className="relative min-h-0 flex-1">
         {/* Home: the ninety-second brief. */}
-        {active === "home" && !grid && <div className="h-full overflow-y-auto"><Home90 c={c} openTab={openTab} allTiles={() => setGrid(true)} /></div>}
+        {active === "home" && !grid && <div className="h-full overflow-y-auto"><Home90 c={c} openTab={openTab} /></div>}
 
         {/* All tiles: the customisable grid. */}
         <div className={`${active === "home" && grid ? "" : "hidden"} grid h-full auto-rows-[minmax(0,1fr)] grid-cols-1 gap-3 overflow-y-auto p-3 md:grid-cols-2 xl:grid-cols-4`}>
