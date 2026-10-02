@@ -4,6 +4,7 @@ import type { ChatCompletionTool } from "openai/resources/chat/completions";
 import type { SectionName, SourceRef } from "../contracts";
 import { q } from "../db";
 import { tools } from "../tools";
+import { getGlance, getInjuries } from "../tools/extra";
 import { extractCites, numbersFromData, splitSentences, unsupported } from "./check";
 import { imessageTarget, sendIMessage } from "./imessage";
 
@@ -32,6 +33,8 @@ export const TOOL_DEFS: ChatCompletionTool[] = [
   fn("get_related", "A person, provider or insurer and how it links to others in the case.", { entity: { type: "string" } }, ["entity"]),
   fn("get_record", "Full text of one record, by the source number shown in an earlier result.", { source: { type: "integer" } }, ["source"]),
   fn("list_providers", "Treating providers on this case."),
+  fn("get_injuries", "The client's injuries by body part, each with quotes from records and scanned pages. Use this when asked where or how the client was hurt."),
+  fn("get_client_and_accident", "Who the client is (age), when and where the accident happened, the firm's own one-line summary and liability note, and how the client is likely to hold up as a witness (concerns and strengths, with quotes)."),
   fn("get_timeline", "Dated events in four lanes (medical, legal, money, communications)."),
   fn("show", "Scroll the firm page to a section and/or open a source with its quote highlighted.", {
     section: { type: "string", enum: ["summary", "conflicts", "money", "open_items", "not_done", "top_ten", "changes"] },
@@ -113,6 +116,8 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const ps = await tools.listProviders(matterId);
       return { result: { count: ps.length, items: ps.map((p) => ({ name: p.name, role: p.role })) }, actions: [] };
     }
+    case "get_injuries": return { result: shape(name, { data: await getInjuries(matterId) }, reg), actions: [] };
+    case "get_client_and_accident": return { result: shape(name, { data: await getGlance(matterId) }, reg), actions: [] };
     case "get_timeline": return { result: shape(name, await tools.getTimeline(matterId), reg), actions: [] };
     case "get_record": {
       const r = ref(args.source);

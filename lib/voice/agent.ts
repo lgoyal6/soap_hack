@@ -2,7 +2,7 @@
 import type { ChatCompletionMessageParam, ChatCompletionMessageToolCall } from "openai/resources/chat/completions";
 import type { SourceRef } from "../contracts";
 import { q } from "../db";
-import { llm, logCall, MODEL } from "../llm";
+import { llm, logCall, MODEL_VOICE as MODEL } from "../llm";
 import { extractCites, numbersFromData, splitSentences, unsupported } from "./check";
 import { allowFrom, runTool, TOOL_DEFS, type Action, type Registry } from "./tools";
 
@@ -41,8 +41,9 @@ function system(today: string, since: string) {
     "You know nothing about the case except what your tools return. Call tools before answering; never guess.",
     "Your words are read aloud. Use short, plain sentences, at most about twenty-five words each. No lists, headings, markdown or emoji.",
     "NUMBERS: never write a number, date, amount, count or duration that does not appear in a tool result. Do not add, subtract, round, convert or estimate. Do not work out deadlines or how long ago something was; repeat what the tools say. Any sentence with a number the tools did not give is deleted before it is spoken.",
+    "Write every number, amount and date in digits exactly as the tool gives it (for example $1,410, 4, 2026-09-27). Never spell a number out in words: the speech engine reads digits aloud correctly, and spelled-out numbers cannot be checked.",
     "Use the `count` field for how many items there are.",
-    "SOURCES: tool results number their sources. End each factual sentence with the numbers it rests on in square brackets, before the full stop, for example: The carrier letter gives a lower limit [4].",
+    "SOURCES: tool results number their sources. End each factual sentence with the numbers it rests on in square brackets, before the full stop, for example: The carrier letter gives a lower limit [4]. One number per bracket: write [4][7], never a range like [4-7] or a list like [4, 7].",
     "If something is not found, say so, and say how much was searched using the `searched` counts.",
     "Where the file disagrees with itself, give both versions and do not pick one.",
     "Deadlines: report the firm's own task or calendar entry; never compute one.",

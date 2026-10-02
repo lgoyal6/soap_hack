@@ -8,6 +8,8 @@ export const llm = new OpenAI({ apiKey: process.env.GMI_API_KEY || "missing", ba
 
 export const MODEL = process.env.LLM_MODEL ?? "";
 export const MODEL_FAST = process.env.LLM_MODEL_FAST || MODEL;
+// The voice agent answers live, so it can use a quicker model than the one that builds the brief.
+export const MODEL_VOICE = process.env.VOICE_MODEL || MODEL;
 
 export async function logCall(purpose: string, model: string, inTok: number | undefined, outTok: number | undefined, ms: number) {
   await q("INSERT INTO llm_calls (purpose, model, input_tokens, output_tokens, ms) VALUES ($1,$2,$3,$4,$5)", [
