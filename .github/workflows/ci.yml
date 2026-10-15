@@ -1,0 +1,84 @@
+name: Casebrief checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: fixture-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd 'pg_isready -h 127.0.0.1 -U postgres'
+          --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      DATABASE_URL: postgres://postgres:fixture-only@127.0.0.1:5432/postgres
+      TEST_DATABASE_URL: postgres://postgres:fixture-only@127.0.0.1:5432/postgres
+      SESSION_SECRET: casebrief-ci-fixture-session-secret
+      USE_FIXTURES: '1'
+      NEXT_TELEMETRY_DISABLED: '1'
+      BASE_URL: http://127.0.0.1:3312
+      GMI_BASE_URL: http://127.0.0.1:55435/v1
+      GMI_API_KEY: local-stub-only
+      VOICE_STUB_PORT: '55435'
+      LLM_MODEL: stub-model
+      CLIO_BASE_URL: http://127.0.0.1:1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npx next typegen && npx tsc --noEmit
+      - run: npm run build
+      - name: Initialize disposable fixture database
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import pg from 'pg';
+          const client = new pg.Client({connectionString: process.env.DATABASE_URL});
+          try {
+            await client.connect();
+            for (const file of fs.readdirSync('db').filter(f => /^\d+_.*\.sql$/.test(f)).sort()) {
+              await client.query(fs.readFileSync('db/' + file, 'utf8'));
+            }
+          } finally {
+            await client.end();
+          }
+          JS
+      - name: Test API and voice routes with local model stub
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm start -- --hostname 127.0.0.1 --port 3312 > "$RUNNER_TEMP/casebrief-server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=false
+          for attempt in $(seq 1 120); do
+            if curl --fail --silent http://127.0.0.1:3312/login > /dev/null; then
+              ready=true
+              break
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              cat "$RUNNER_TEMP/casebrief-server.log"
+              exit 1
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            cat "$RUNNER_TEMP/casebrief-server.log"
+            exit 1
+          fi
+          node --experimental-strip-types --test --test-reporter=tap tests/**/*.test.ts | tee "$RUNNER_TEMP/casebrief-tests.log"
+          grep -q '^# skipped 0$' "$RUNNER_TEMP/casebrief-tests.log"
