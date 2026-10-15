@@ -22,6 +22,32 @@ tool result of this conversation, the user's own words, or today's date. Ids and
 allowed numbers. Dropped sentences are logged in `voice_turns.dropped`, and the dock says a sentence was withheld.
 Drafts go through the same check; a draft with an unsupported number is refused and the model is told why.
 
+## Grounding check (`ground` in `lib/voice/check.ts`)
+
+The number check above only asks whether a number appeared in some tool result. Every spoken sentence, draft and
+text message is also checked against what it cites:
+
+- each cited `[n]` must be a source this conversation has seen;
+- each number must be stated by a cited source (`number_from_uncited_source` when another source has it);
+- as the same kind of number: an amount, a date (kept whole), days, a count ("3 times", "twice") or a plain number
+  (`unit_mismatch` for 120 days open spoken as "asked 120 times");
+- for the party the sentence names (`entity_mismatch`, `entity_not_in_cited_source`);
+- not only from a source marked stale;
+- "not found" needs a search this turn, and while scanned pages are unread it must say how many pages were read.
+
+Numbers in the attorney's own words and today's date need no source. It is a finite rule check on numbers, units and
+named parties; it does not judge prose without numbers.
+
+## Timeouts, disconnects and interruption
+
+- A model stream that sends nothing for 30 s is abandoned; the turn ends with an error and the upstream request is closed.
+  Read-only tool calls have the same bound; tools with side effects (drafts, texts) are left to finish.
+- Text is checked one complete sentence at a time. After a disconnect or an interruption the unfinished tail is never
+  checked, shown or spoken; after a normal end it is.
+- `tests/voice/agent-network.test.ts` drives the real route, agent and `openai` SDK against a local stand-in endpoint
+  (`tests/voice/model-stub.ts`): a swapped count, a dropped connection, a stalled stream, a refused connection retried
+  once by the SDK, and the attorney interrupting. It does not call a real model.
+
 ## Speech
 
 - In: Chrome's speech recognition while space is held. Space while it is thinking or speaking stops the audio and
@@ -57,4 +83,6 @@ Say or type "text me a summary" and the agent gathers the facts, then calls `sen
 
 ## Test
 
-`node --experimental-strip-types --test tests/voice/*.test.ts` covers the number check, source markers and sentence splitting.
+`node --experimental-strip-types --test tests/voice/*.test.ts` covers the number check, source markers, sentence splitting,
+the grounding check (including a 200-claim synthetic set: 10 made-up cases, 3 providers each) and, with a dev server and
+the stand-in endpoint configured as described in `agent-network.test.ts`, the network cases.
