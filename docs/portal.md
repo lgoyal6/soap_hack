@@ -98,3 +98,36 @@ It covers revoke before and during a publish, repeats, concurrent publishes of o
 preview, a failure after the first write, a retry after a lost answer, a forged or cross-case provider, no consent,
 provider read isolation and the outbox. Where it matters, the old publish path (`tests/portal/baseline-publish.ts`)
 runs on the same trigger to show the check can fail.
+
+### Rendered sharing controls
+
+`tests/portal/share-panel.browser.cjs` uses Chromium to check keyboard consent
+changes, revision-bound publishing, stale-publish feedback, failed-load recovery
+and the empty-provider state. It replaces share API responses with synthetic
+fixtures while rendering the actual firm page. It checks accessibility roles and
+keyboard activation; it does not replace a session with a screen-reader user.
+
+Start the app in one terminal with fixtures and disabled external endpoints:
+
+```bash
+USE_FIXTURES=1 SESSION_SECRET=casebrief-local-browser-fixture \
+DATABASE_URL=postgres://disabled:disabled@127.0.0.1:1/disabled \
+CLIO_BASE_URL=http://127.0.0.1:1 GMI_BASE_URL=http://127.0.0.1:1/v1 \
+GMI_API_KEY=local-disabled-fixture NEXT_TELEMETRY_DISABLED=1 \
+  npm run dev -- --webpack --hostname 127.0.0.1 --port 3317
+```
+
+Install the browser driver outside the repository and run the checks in another
+terminal. This leaves the shared package and lockfile unchanged:
+
+```bash
+browser_tools="$(mktemp -d)"
+npm install --prefix "$browser_tools" --no-package-lock --no-save playwright@1.62.1
+"$browser_tools/node_modules/.bin/playwright" install chromium
+NODE_PATH="$browser_tools/node_modules" BASE_URL=http://127.0.0.1:3317 \
+SESSION_SECRET=casebrief-local-browser-fixture \
+  node --test tests/portal/share-panel.browser.cjs
+```
+
+Stop the fixture server after testing. The browser closes its isolated contexts
+and process after the suite; no real provider, Clio or model request is required.
