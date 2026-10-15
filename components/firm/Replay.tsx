@@ -96,7 +96,7 @@ export default function Replay({ events, coverage, open }: { events: TimelineEve
       <p className="mt-1 text-base text-neutral-700">
         Charges recorded on the file so far: <b>{usd(charged)}</b>
         {Number.isFinite(coverage) && <> &nbsp;·&nbsp; black line: liability coverage figure in the file, <b>{usd(coverage)}</b></>}
-        &nbsp;·&nbsp; firm's own costs so far: <b>{usd(spent)}</b>
+        &nbsp;·&nbsp; firm&apos;s own costs so far: <b>{usd(spent)}</b>
       </p>
     </section>
   );

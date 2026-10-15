@@ -32,7 +32,9 @@ export default async function FirmHome({ searchParams }: { searchParams: Promise
      RETURNING prev_at`,
     [session.userId, matter.id],
   ).catch(() => []);
-  const since = (visit?.prev_at ?? new Date(Date.now() - 30 * 86_400_000)).toISOString().slice(0, 10);
+  const firstVisitSince = new Date(today);
+  firstVisitSince.setUTCDate(firstVisitSince.getUTCDate() - 30);
+  const since = (visit?.prev_at ?? firstVisitSince).toISOString().slice(0, 10);
 
   const [summary, openItems, conflicts, money, notDone, changes, timeline, top] = await Promise.all([
     tools.getSummary(matter.id), tools.getOpenItems(matter.id), tools.getConflicts(matter.id), tools.getMoney(matter.id),
