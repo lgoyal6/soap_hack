@@ -5,7 +5,7 @@ import type { SectionName, SourceRef } from "../contracts";
 import { q } from "../db";
 import { tools } from "../tools";
 import { getGlance, getInjuries } from "../tools/extra";
-import { extractCites, numbersFromData, splitSentences, unsupported } from "./check";
+import { extractCites, groundText, numbersFromData, splitSentences, type Evidence } from "./check";
 import { imessageTarget, sendIMessage } from "./imessage";
 
 export type Registry = { refs: SourceRef[]; section: (SectionName | null)[] };
@@ -98,7 +98,11 @@ function shape(name: string, res: unknown, reg: Registry) {
 }
 
 /** `userMessage` is what the attorney said this turn: the iMessage tool only runs when they asked for a text. */
-export type ToolCtx = { matterId: number; userId: number; reg: Registry; allowed: Set<string>; userMessage: string };
+export type ToolCtx = { matterId: number; userId: number; reg: Registry; allowed: Set<string>; evidence: Evidence; userClaims: Set<string>; userMessage: string };
+
+function groundingFailures(body: string, ctx: ToolCtx): string[] {
+  return [...new Set(groundText(body, ctx.evidence, ctx.userClaims).reasons.map((r) => r.token ?? r.code))];
+}
 
 export async function runTool(name: string, args: Record<string, unknown>, ctx: ToolCtx): Promise<{ result: unknown; actions: Action[] }> {
   const { matterId, reg } = ctx;
@@ -139,9 +143,8 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     case "create_draft": {
       const body = String(args.body ?? "").trim();
       if (!body) return { result: { error: "Empty draft" }, actions: [] };
-      // Drafts follow the same number rule as speech.
-      const bad = unsupported(body, ctx.allowed);
-      if (bad.length) return { result: { error: `Draft not saved: it has numbers no tool returned (${bad.join(", ")}). Remove them or look them up first.` }, actions: [] };
+      const bad = groundingFailures(body, ctx);
+      if (bad.length) return { result: { error: `Draft not saved: grounding check failed (${bad.join(", ")}). Cite the right source or look up the claim first.` }, actions: [] };
       const kind = ["email", "todo", "provider_update"].includes(String(args.kind)) ? String(args.kind) : "email";
       const to = args.to ? String(args.to).slice(0, 200) : null;
       const [row] = await q<{ id: string; at: Date }>(
@@ -159,12 +162,13 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
         return { result: { error: "Not sent: the attorney did not ask for a text in this message." }, actions: [] };
       }
       if (!imessageTarget()) return { result: { error: "Not sent: no iMessage number is set up (IMESSAGE_TO)." }, actions: [] };
-      // Same checks as speech: markers removed, and no number a tool did not return.
+      // Verify every complete sentence against its cited evidence before sending; remove markers from the text sent.
       const { done, rest } = splitSentences(String(args.body ?? ""));
-      const text = [...done, rest].map((x) => extractCites(x).text).filter((x) => /[a-z0-9]/i.test(x)).join(" ").slice(0, 2000);
+      const raw = [...done, rest].filter((x) => /[a-z0-9]/i.test(x));
+      const bad = groundingFailures(raw.join(" "), ctx);
+      if (bad.length) return { result: { error: `Not sent: grounding check failed (${bad.join(", ")}). Cite the right source or look up the claim first.` }, actions: [] };
+      const text = raw.map((x) => extractCites(x).text).join(" ").slice(0, 2000);
       if (!text) return { result: { error: "Empty message" }, actions: [] };
-      const bad = unsupported(text, ctx.allowed);
-      if (bad.length) return { result: { error: `Not sent: it has numbers no tool returned (${bad.join(", ")}). Remove them or look them up first.` }, actions: [] };
       const r = await sendIMessage(text);
       if (!r.ok) return { result: { error: `Not sent: ${r.error}` }, actions: [] };
       await q("INSERT INTO outbox (matter_id, reason, recipient, subject, body) VALUES ($1,'imessage',$2,'Text to the attorney by iMessage',$3)", [matterId, r.to, text]).catch(() => {});

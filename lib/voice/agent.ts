@@ -1,9 +1,12 @@
-// Owner: Laksh. One voice turn: model with tools, streamed, each sentence checked before it is shown or spoken.
+// Runs one tool-enabled voice turn and checks each streamed sentence.
+// tools.ts supplies case facts; check.ts validates citations and numeric claims.
+// Conversations stay scoped to the signed-in user and case.
+// Owner: Laksh.
 import type { ChatCompletionMessageParam, ChatCompletionMessageToolCall } from "openai/resources/chat/completions";
 import type { SourceRef } from "../contracts";
 import { q } from "../db";
 import { llm, logCall, MODEL_VOICE as MODEL } from "../llm";
-import { extractCites, numbersFromData, splitSentences, unsupported } from "./check";
+import { DeadlineError, extractCites, ground, indexEvidence, newEvidence, numbersFromData, SentenceStream, userClaims, withDeadline } from "./check";
 import { allowFrom, runTool, TOOL_DEFS, type Action, type Registry } from "./tools";
 
 export type VoiceEvent =
@@ -14,11 +17,32 @@ export type VoiceEvent =
   | { type: "error"; message: string }
   | { type: "done"; turnId: number | null };
 
-type Conversation = { messages: ChatCompletionMessageParam[]; reg: Registry; allowed: Set<string>; at: number };
+type Conversation = { messages: ChatCompletionMessageParam[]; reg: Registry; allowed: Set<string>; evidence: ReturnType<typeof newEvidence>; userClaims: Set<string>; at: number };
 
 // Per signed-in user and case. Survives Next.js dev reloads; lost on server restart, which only ends the thread.
 const g = globalThis as unknown as { __voiceConv?: Map<string, Conversation> };
 const store = (g.__voiceConv ??= new Map());
+const IDLE_TIMEOUT_MS = 30_000;
+
+function operationDeadline(parent: AbortSignal, ms = IDLE_TIMEOUT_MS) {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+  const onParentAbort = () => controller.abort();
+  parent.addEventListener("abort", onParentAbort, { once: true });
+  if (parent.aborted) controller.abort();
+  return {
+    signal: controller.signal,
+    get timedOut() { return timedOut; },
+    run: async <T>(start: () => Promise<T>) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { timedOut = true; controller.abort(); }, ms);
+      try { return await withDeadline(start(), ms, controller.signal); }
+      finally { clearTimeout(timer); }
+    },
+    dispose: () => { clearTimeout(timer); parent.removeEventListener("abort", onParentAbort); },
+  };
+}
 
 export function resetConversation(userId: number, matterId: number) {
   store.delete(`${userId}:${matterId}`);
@@ -28,7 +52,7 @@ function conversation(userId: number, matterId: number): Conversation {
   const k = `${userId}:${matterId}`;
   let c = store.get(k);
   if (!c || Date.now() - c.at > 6 * 3600_000) {
-    c = { messages: [], reg: { refs: [], section: [] }, allowed: new Set(), at: Date.now() };
+    c = { messages: [], reg: { refs: [], section: [] }, allowed: new Set(), evidence: newEvidence(), userClaims: new Set(), at: Date.now() };
     store.set(k, c);
   }
   c.at = Date.now();
@@ -40,6 +64,7 @@ function system(today: string, since: string) {
     "You are the paralegal for a personal-injury law firm, speaking to an attorney about one case.",
     "You know nothing about the case except what your tools return. Call tools before answering; never guess.",
     "Your words are read aloud. Use short, plain sentences, at most about twenty-five words each. No lists, headings, markdown or emoji.",
+    "For numeric claims, name only one party per sentence. Use separate cited sentences for different providers, clients or insurers.",
     "NUMBERS: never write a number, date, amount, count or duration that does not appear in a tool result. Do not add, subtract, round, convert or estimate. Do not work out deadlines or how long ago something was; repeat what the tools say. Any sentence with a number the tools did not give is deleted before it is spoken.",
     "Write every number, amount and date in digits exactly as the tool gives it (for example $1,410, 4, 2026-09-27). Never spell a number out in words: the speech engine reads digits aloud correctly, and spelled-out numbers cannot be checked.",
     "Use the `count` field for how many items there are.",
@@ -68,6 +93,7 @@ export async function runTurn(opts: { userId: number; matterId: number; message:
   const since = await lastVisit(userId, matterId);
   // The user's own words and the dates in the prompt are not model inventions.
   numbersFromData([message, today, since], conv.allowed);
+  userClaims([message, today, since], conv.userClaims);
 
   conv.messages.push({ role: "user", content: message });
   const spoken: string[] = [];
@@ -81,8 +107,9 @@ export async function runTurn(opts: { userId: number; matterId: number; message:
   const sentence = (raw: string) => {
     const { text, cites } = extractCites(raw);
     if (!/[a-z0-9]/i.test(text)) return;
-    const bad = unsupported(text, conv.allowed);
-    if (bad.length) {
+    const checked = ground(text, cites, conv.evidence, conv.userClaims);
+    if (!checked.ok) {
+      const bad = [...new Set(checked.reasons.map((r) => r.token ?? r.code))];
       dropped.push({ text, numbers: bad });
       emit({ type: "dropped", text, numbers: bad });
       return;
@@ -99,65 +126,85 @@ export async function runTurn(opts: { userId: number; matterId: number; message:
     if (!process.env.GMI_API_KEY || !MODEL) throw new Error("The model is not configured: set GMI_API_KEY and LLM_MODEL in .env");
     for (let round = 0; round < 8; round++) {
       const t = Date.now();
-      const stream = await llm.chat.completions.create(
-        {
-          model: MODEL, temperature: 0.2, stream: true, stream_options: { include_usage: true },
-          tools: TOOL_DEFS,
-          messages: [{ role: "system", content: system(today, since) }, ...conv.messages],
-        },
-        { signal },
-      );
-      let buf = "";
-      let content = "";
-      const tc: { id: string; name: string; args: string }[] = [];
-      let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
-      for await (const chunk of stream) {
-        if (chunk.usage) usage = chunk.usage;
-        const d = chunk.choices?.[0]?.delta;
-        if (!d) continue;
-        if (d.content) {
-          content += d.content;
-          buf += d.content;
-          const { done, rest } = splitSentences(buf);
-          buf = rest;
-          done.forEach(sentence);
+      const deadline = operationDeadline(signal);
+      try {
+        const stream = await deadline.run(() => llm.chat.completions.create(
+          {
+            model: MODEL, temperature: 0.2, stream: true, stream_options: { include_usage: true },
+            tools: TOOL_DEFS,
+            messages: [{ role: "system", content: system(today, since) }, ...conv.messages],
+          },
+          { signal: deadline.signal },
+        ));
+        const sentences = new SentenceStream();
+        let content = "";
+        const tc: { id: string; name: string; args: string }[] = [];
+        let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
+        const iterator = stream[Symbol.asyncIterator]();
+        while (true) {
+          const next = await deadline.run(() => iterator.next());
+          if (next.done) break;
+          const chunk = next.value;
+          if (chunk.usage) usage = chunk.usage;
+          const d = chunk.choices?.[0]?.delta;
+          if (!d) continue;
+          if (d.content) {
+            content += d.content;
+            sentences.push(d.content).forEach(sentence);
+          }
+          for (const c of d.tool_calls ?? []) {
+            const slot = (tc[c.index] ??= { id: "", name: "", args: "" });
+            if (c.id) slot.id = c.id;
+            if (c.function?.name) slot.name += c.function.name;
+            if (c.function?.arguments) slot.args += c.function.arguments;
+          }
         }
-        for (const c of d.tool_calls ?? []) {
-          const slot = (tc[c.index] ??= { id: "", name: "", args: "" });
-          if (c.id) slot.id = c.id;
-          if (c.function?.name) slot.name += c.function.name;
-          if (c.function?.arguments) slot.args += c.function.arguments;
-        }
-      }
-      if (buf.trim()) sentence(buf);
-      inTok += usage?.prompt_tokens ?? 0;
-      outTok += usage?.completion_tokens ?? 0;
-      await logCall("voice", MODEL, usage?.prompt_tokens, usage?.completion_tokens, Date.now() - t);
+        // A normal stream may end with a final sentence lacking punctuation. Errors and disconnects skip this flush.
+        sentences.flush().forEach(sentence);
+        inTok += usage?.prompt_tokens ?? 0;
+        outTok += usage?.completion_tokens ?? 0;
+        await logCall("voice", MODEL, usage?.prompt_tokens, usage?.completion_tokens, Date.now() - t);
 
-      const toolCalls = tc.filter((c) => c && c.name);
-      if (!toolCalls.length) {
-        conv.messages.push({ role: "assistant", content: spoken.join(" ") || content });
-        break;
-      }
-      conv.messages.push({
-        role: "assistant", content: content || null,
-        tool_calls: toolCalls.map((c, i): ChatCompletionMessageToolCall => ({ id: c.id || `call_${round}_${i}`, type: "function", function: { name: c.name, arguments: c.args || "{}" } })),
-      });
-      for (const [i, c] of toolCalls.entries()) {
-        emit({ type: "tool", name: c.name });
-        calls.push(c.name);
-        let args: Record<string, unknown> = {};
-        try { args = JSON.parse(c.args || "{}"); } catch { /* model sent bad JSON; run with no arguments */ }
-        let result: unknown;
-        try {
-          const r = await runTool(c.name, args, { matterId, userId, reg: conv.reg, allowed: conv.allowed, userMessage: message });
-          result = r.result;
-          r.actions.forEach(emit);
-        } catch (e) {
-          result = { error: `Tool failed: ${(e as Error).message}` };
+        const toolCalls = tc.filter((c) => c && c.name);
+        if (!toolCalls.length) {
+          conv.messages.push({ role: "assistant", content: spoken.join(" ") || content });
+          break;
         }
-        allowFrom(result, conv.allowed);
-        conv.messages.push({ role: "tool", tool_call_id: c.id || `call_${round}_${i}`, content: JSON.stringify(result) });
+        conv.messages.push({
+          role: "assistant", content: content || null,
+          tool_calls: toolCalls.map((c, i): ChatCompletionMessageToolCall => ({ id: c.id || `call_${round}_${i}`, type: "function", function: { name: c.name, arguments: c.args || "{}" } })),
+        });
+        for (const [i, c] of toolCalls.entries()) {
+          emit({ type: "tool", name: c.name });
+          calls.push(c.name);
+          let args: Record<string, unknown> = {};
+          try { args = JSON.parse(c.args || "{}"); } catch { /* model sent bad JSON; run with no arguments */ }
+          let result: unknown;
+          try {
+            const invocation = () => runTool(c.name, args, { matterId, userId, reg: conv.reg, allowed: conv.allowed, evidence: conv.evidence, userClaims: conv.userClaims, userMessage: message });
+            // Read-only calls may time out safely. Side-effect tools run to completion so a timeout cannot hide a
+            // committed draft or message and invite a duplicate retry.
+            let r: Awaited<ReturnType<typeof runTool>>;
+            if (c.name === "create_draft" || c.name === "send_imessage") r = await invocation();
+            else {
+              const toolDeadline = operationDeadline(signal, IDLE_TIMEOUT_MS);
+              try { r = await toolDeadline.run(invocation); }
+              finally { toolDeadline.dispose(); }
+            }
+            result = r.result;
+            indexEvidence(result, conv.evidence);
+            r.actions.forEach(emit);
+          } catch (e) {
+            result = { error: e instanceof DeadlineError ? "Tool timed out" : `Tool failed: ${(e as Error).message}` };
+          }
+          allowFrom(result, conv.allowed);
+          conv.messages.push({ role: "tool", tool_call_id: c.id || `call_${round}_${i}`, content: JSON.stringify(result) });
+        }
+      } catch (e) {
+        if (deadline.timedOut && !signal.aborted) throw new DeadlineError(`model timed out after ${IDLE_TIMEOUT_MS} ms without progress`);
+        throw e;
+      } finally {
+        deadline.dispose();
       }
     }
   } catch (e) {
