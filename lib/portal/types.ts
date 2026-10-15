@@ -49,8 +49,10 @@ export type ProviderShare = {
   preview: ProviderCase;
   /** Categories that would not be sent, and why. */
   heldBack: { category: ShareCategory; label: string; reason: string; items: number }[];
-  /** Latest publish per category. `stale` = the case has moved on since. */
-  published: Partial<Record<ShareCategory, { at: string; stale: boolean }>>;
+  /** Current revision per category: what "Publish" would send. Sent back with Publish so a moved case is refused. */
+  revisions: Record<ShareCategory, string>;
+  /** Latest publish per category. `stale` = the case has moved on since. `seen` = the provider opened the case after it. */
+  published: Partial<Record<ShareCategory, { at: string; stale: boolean; seen: boolean }>>;
   code: { active: boolean; createdAt: string; revokedAt: string | null } | null;
   views: { count: number; last: string | null };
   replies: ReplyRow[];

@@ -36,7 +36,7 @@ export default function SharePanel({ matterId }: { matterId: number }) {
 
   async function act(fn: () => Promise<unknown>, ok?: string) {
     setMsg("");
-    try { await fn(); if (ok) setMsg(ok); } catch (e) { setMsg((e as Error).message); }
+    try { const r = await fn(); if (ok) setMsg(ok); else if (typeof r === "string") setMsg(r); } catch (e) { setMsg((e as Error).message); }
     await load();
   }
 
@@ -86,7 +86,14 @@ export default function SharePanel({ matterId }: { matterId: number }) {
                   <td className="px-2 py-2">
                     <button
                       disabled={!CATEGORIES.some((c) => p.consent[c].granted)}
-                      onClick={() => act(() => post("/api/share/publish", { matterId, providerNodeId: p.provider.nodeId }), `Published to ${p.provider.name}.`)}
+                      onClick={() => act(async () => {
+                        // Send back the revisions shown here: if the case moved on since, the server refuses and nothing is written.
+                        const expected = Object.fromEntries(CATEGORIES.filter((c) => p.consent[c].granted).map((c) => [c, p.revisions[c]]));
+                        const r = await post("/api/share/publish", { matterId, providerNodeId: p.provider.nodeId, expected }) as { published: string[]; unchanged: string[] };
+                        return r.published.length
+                          ? `Published ${r.published.length} ${r.published.length === 1 ? "category" : "categories"} to ${p.provider.name}${r.unchanged.length ? `; ${r.unchanged.length} already up to date` : ""}.`
+                          : `Nothing new for ${p.provider.name}: everything shared is already up to date.`;
+                      })}
                       className="rounded bg-black px-3 py-1.5 font-semibold text-white disabled:opacity-40"
                     >Publish</button>
                   </td>
@@ -94,7 +101,7 @@ export default function SharePanel({ matterId }: { matterId: number }) {
               ))}
             </tbody>
           </table>
-          <p className="mt-1 text-sm text-neutral-600">Tick = consent recorded. Under each tick: when it was last published, or &ldquo;changed&rdquo; if the case has moved on since. Coverage is off by default.</p>
+          <p className="mt-1 text-sm text-neutral-600">Tick = consent recorded. Under each tick: when it was last published, &ldquo;changed&rdquo; if the case has moved on since, and &ldquo;not opened yet&rdquo; until the provider opens the case. Coverage is off by default.</p>
         </div>
       )}
       {msg && <p className="mt-2 rounded bg-neutral-100 p-2">{msg}</p>}
@@ -124,7 +131,12 @@ export default function SharePanel({ matterId }: { matterId: number }) {
 function PublishedMark({ p, c }: { p: ProviderShare; c: ShareCategory }) {
   const pub = p.published[c];
   if (!pub) return null;
-  return <span className={`text-xs ${pub.stale ? "font-semibold text-orange-700" : "text-neutral-500"}`}>{pub.stale ? "changed" : when(pub.at)}</span>;
+  return (
+    <span className={`text-xs ${pub.stale ? "font-semibold text-orange-700" : "text-neutral-500"}`}>
+      {pub.stale ? "changed" : when(pub.at)}
+      {!pub.seen && <span className="block text-neutral-500">not opened yet</span>}
+    </span>
+  );
 }
 
 function Detail({ p, matterId, code, onCode, onRevoke, onLien }: {

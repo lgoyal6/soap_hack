@@ -8,7 +8,9 @@ Each treating provider gets its own login and sees only what the attorney publis
    (stage, requests, own bills, coverage, other treaters). Coverage is off by default; every category starts without consent.
 2. "Preview as this provider" shows exactly what Publish would send. "Held back" lists the categories without consent.
 3. Publish (`POST /api/share/publish`) snapshots each consented category from `getShareable` into `shared_items`.
-   A category without consent is refused with 403 and nothing is written.
+   A category without consent is refused with 403 and nothing is written. The panel sends back the revision of each
+   category it previewed; if the case changed since, or a previewed category lost consent, the publish is refused
+   (409 or 403) and nothing is written. See "Publishing contract" below.
 4. "Generate access code" creates the provider login: the provider's email from Clio plus a 10-character code,
    shown once and stored only as a salted scrypt hash (`lib/portal/codes.ts`). "Revoke access" ends it at once.
 5. The provider signs in at `/login`, sees every patient the practice has with the firm (`/provider`) and what moved
@@ -30,6 +32,49 @@ Each treating provider gets its own login and sees only what the attorney publis
 - Providers get 403 on `/api/share/*` and `/api/voice/*`, 401 on `/api/case/*`, and `/firm` redirects them to `/login`.
 - Payloads carry labels and values only, never Clio record ids.
 
+## Publishing contract (`lib/portal/publish.ts`, `db/03_publish_jobs.sql`)
+
+- **One transaction, all or nothing.** Provider-on-case check, consent check, every category's write, the audit rows
+  and the outbox row commit together. A failure part way leaves nothing behind.
+- **Consent is locked, not just read.** The consent rows are read `FOR SHARE`. A revoke that committed first is seen and
+  the publish is refused; a revoke that arrives during a publish waits for it to commit and then hides the item
+  (the provider side joins on active consent).
+- **Revision.** Each category's snapshot has a revision: sha256 of its canonical label and payload. The idempotency key is
+  sha256 of case, provider, category and revision.
+- **No duplicates.** `publish_heads` holds the latest revision per case, provider and category. A category is written only
+  when its revision differs from the head, so a retry, a double click or eight concurrent clicks write one item, while
+  content that changes and changes back (A, B, A) is published three times.
+- **Ordering.** Items are stamped with `clock_timestamp()` after the head lock, so "latest" for the provider is the order
+  the head moved in.
+- **Stale preview.** `expected` revisions that no longer match the case give 409 with the stale categories.
+- **Audit.** `publish_jobs` keeps one row per category per committed publish: `published` or `unchanged`, with the request id.
+  Refusals roll back and are reported to the caller and in the log line.
+- **Outbox.** One `outbox` row (reason `shared`) per publish that wrote something, only for a provider with an active
+  login. Nothing is sent.
+- **Not covered.** Snapshots come from `getShareable` just before the transaction, not from a locked source revision of
+  the Clio sync; a sync that lands between the preview and the publish is caught only through the revision compare.
+  Re-granting consent after a revoke shows the item published before the revoke again (unchanged from before).
+
+## Operations
+
+- **Start.** `docker compose up -d` loads `db/01_core.sql`, `02_portal_voice.sql` and `03_publish_jobs.sql` on a new volume
+  (checked on Postgres 16 with a 2 GB / 2 CPU cap). An existing volume does not rerun them: apply `03_publish_jobs.sql`
+  by hand once (`docker compose exec -T db psql -U casebrief < db/03_publish_jobs.sql`).
+- **Health.** `GET /api/health` returns `{"status":"ok","check":"liveness"}` with `Cache-Control: no-store`.
+  It proves HTTP serving only and does not query case data, sessions, the database or a provider. Check database
+  readiness separately with the compose healthcheck (`pg_isready`); a healthy app probe does not establish that
+  publishing is available. `GET /login` remains a page smoke check.
+- **Correlation.** Every publish answers with an `x-request-id` header (the caller's, if it looks safe, otherwise a new
+  UUID) and logs one JSON line `{"evt":"share.publish", requestId, matterId, providerNodeId, ms, status, published, unchanged}`:
+  ids and counts only, never payloads, names or emails. The same id is on the `shared_items` and `publish_jobs` rows.
+- **Recovery.** A publish that failed or whose answer was lost can simply be repeated: nothing partial was kept, and a
+  repeat of a committed publish is `unchanged`.
+- **Rollback.** The `DROP`/`ALTER` lines at the top of `db/03_publish_jobs.sql` remove what it added. Rows written by the
+  new code stay readable by the old code (the extra columns are ignored); the old code would again write a duplicate
+  item per click.
+- **Retention.** `publish_jobs` and `outbox` grow by one row per category per publish. Nothing prunes them yet; they are
+  deleted with the provider node (cascade).
+
 ## Test
 
 ```bash
@@ -40,3 +85,16 @@ node --env-file=.env --experimental-strip-types --test tests/portal/*.test.ts
 `tests/portal/access.test.ts` builds its own made-up matter with two providers, checks sign-in, every firm route,
 cross-provider reads and writes, forged and unsigned cookies, publishing without consent, and revocation, then cleans up.
 It skips itself if the server or database is not reachable.
+
+`tests/portal/publish-race.test.ts` needs no server: it makes a throwaway database on the Postgres you name, loads
+`db/*.sql` and drops it afterwards.
+
+```bash
+TEST_DATABASE_URL=postgres://casebrief:casebrief@127.0.0.1:5433/postgres \
+  node --experimental-strip-types --test tests/portal/publish-race.test.ts
+```
+
+It covers revoke before and during a publish, repeats, concurrent publishes of one and of different snapshots, a stale
+preview, a failure after the first write, a retry after a lost answer, a forged or cross-case provider, no consent,
+provider read isolation and the outbox. Where it matters, the old publish path (`tests/portal/baseline-publish.ts`)
+runs on the same trigger to show the check can fail.

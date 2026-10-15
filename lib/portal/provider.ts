@@ -3,6 +3,7 @@
 import type { Session, ShareCategory } from "../contracts";
 import { q } from "../db";
 import { readLien } from "./lien";
+import { PROVIDER_ITEMS_SQL } from "./publish.ts";
 import { checkStageChange } from "./outbox";
 import { repliesFor } from "./share";
 import { REPLIES, type ProviderCase, type ReplyKind, type SharedItem } from "./types";
@@ -32,11 +33,7 @@ type ItemRow = { id: string; matter_id: string; provider_node_id: string; catego
 /** Latest published item per case and category, only where consent is still active. */
 async function items(ctx: ProviderCtx, matterId?: number): Promise<ItemRow[]> {
   return q<ItemRow>(
-    `SELECT DISTINCT ON (s.matter_id, s.category) s.id, s.matter_id, s.provider_node_id, s.category, s.label, s.patient, s.payload, s.published_at
-     FROM shared_items s
-     JOIN consent c ON c.provider_node_id = s.provider_node_id AND c.category = s.category AND c.revoked_at IS NULL
-     WHERE s.provider_node_id = ANY($1) AND ($2::bigint IS NULL OR s.matter_id = $2)
-     ORDER BY s.matter_id, s.category, s.published_at DESC`,
+    PROVIDER_ITEMS_SQL,
     [ctx.nodeIds, matterId ?? null],
   );
 }

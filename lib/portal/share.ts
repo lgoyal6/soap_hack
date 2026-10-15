@@ -1,23 +1,15 @@
 // Owner: Laksh. Firm side of the provider portal: consent, publishing, access codes, the share panel's data.
 // Trust rule 6: nothing reaches a provider until a person publishes it, and only categories with consent.
 import type { ShareCategory, Shareable } from "../contracts";
-import { q } from "../db";
+import { pool, q } from "../db";
 import { tools } from "../tools";
 import { hashCode, newCode } from "./codes";
 import { readLien } from "./lien";
 import { checkStageChange } from "./outbox";
+import { canon, publishSnapshot, revisionOf, ShareError } from "./publish.ts";
 import { CATEGORIES, CATEGORY_LABEL, itemCount, type ProviderCase, type ProviderShare, type ReplyRow, type SharePanelData } from "./types";
 
-export class ShareError extends Error {
-  constructor(message: string, public status: number, public extra: Record<string, unknown> = {}) { super(message); }
-}
-
-/** Key-order independent JSON, because jsonb does not keep key order. */
-export function canon(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map(canon).join(",")}]`;
-  if (v && typeof v === "object") return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canon((v as Record<string, unknown>)[k])}`).join(",")}}`;
-  return JSON.stringify(v ?? null);
-}
+export { canon, ShareError } from "./publish.ts";
 
 /** The provider must be a provider node on this matter; anything else is refused. */
 export async function providerOnMatter(matterId: number, nodeId: number) {
@@ -67,29 +59,22 @@ function previewFrom(matterId: number, patient: string | null, shareable: Sharea
   };
 }
 
-export async function publish(matterId: number, nodeId: number, categories: ShareCategory[] | undefined, userId: number) {
+/**
+ * Publishes the consented categories (or the ones asked for) to one provider. `expected` holds the revisions the
+ * person saw in the preview; if the case moved on since, nothing is written and the caller gets 409.
+ * Consent, the provider's place on the case and the write are checked in one transaction (lib/portal/publish.ts).
+ */
+export async function publish(
+  matterId: number, nodeId: number, categories: ShareCategory[] | undefined, userId: number,
+  opts: { requestId: string; expected?: Partial<Record<ShareCategory, string>> },
+) {
   await providerOnMatter(matterId, nodeId);
-  const consent = await consentFor(nodeId);
-  const consented = CATEGORIES.filter((c) => consent[c].granted);
-  const wanted = categories ?? consented;
-  const unknown = wanted.filter((c) => !CATEGORIES.includes(c));
-  if (unknown.length) throw new ShareError("Unknown category", 400, { unknown });
-  const refused = wanted.filter((c) => !consent[c].granted);
-  if (refused.length) throw new ShareError("No consent recorded for these categories; nothing was published", 403, { refused });
-  if (!wanted.length) throw new ShareError("Nothing to publish: no category has consent", 400);
-
   const shareable = await tools.getShareable(matterId, nodeId);
-  const patient = await patientName(matterId);
-  const ids: number[] = [];
-  for (const c of wanted) {
-    const [row] = await q<{ id: string }>(
-      `INSERT INTO shared_items (matter_id, provider_node_id, category, label, patient, payload, published_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-      [matterId, nodeId, c, shareable[c].label, patient, JSON.stringify(shareable[c].payload ?? null), userId],
-    );
-    ids.push(Number(row.id));
-  }
-  return { published: wanted, ids };
+  const snapshots = Object.fromEntries(CATEGORIES.map((c) => [c, { label: shareable[c]?.label ?? "", payload: shareable[c]?.payload ?? null }])) as Record<ShareCategory, { label: string; payload: unknown }>;
+  return publishSnapshot(pool, {
+    matterId, nodeId, categories, userId, requestId: opts.requestId, expected: opts.expected,
+    patient: await patientName(matterId), snapshots,
+  });
 }
 
 /** Creates (or replaces) the provider's login and returns the code. The code is shown once and never stored in clear. */
@@ -133,6 +118,15 @@ export async function repliesFor(matterId: number, nodeIds: number[]): Promise<R
   }));
 }
 
+/** When this provider last opened this case in the portal, or null. */
+async function providerLastSeen(matterId: number, email: string | null): Promise<number | null> {
+  if (!email) return null;
+  const [v] = await q<{ last: Date | null }>(
+    `SELECT max(v.at) AS last FROM view_log v JOIN users u ON u.id = v.user_id
+     WHERE v.matter_id = $1 AND u.role = 'provider' AND u.email = lower($2)`, [matterId, email]);
+  return v?.last ? v.last.getTime() : null;
+}
+
 export async function panelData(matterId: number): Promise<SharePanelData> {
   await checkStageChange(matterId).catch(() => {});
   const providers = await tools.listProviders(matterId);
@@ -142,13 +136,19 @@ export async function panelData(matterId: number): Promise<SharePanelData> {
     const consent = await consentFor(p.nodeId);
     const shareable = await tools.getShareable(matterId, p.nodeId);
     const consented = CATEGORIES.filter((c) => consent[c].granted);
-    const latest = await q<{ category: ShareCategory; payload: unknown; published_at: Date }>(
-      `SELECT DISTINCT ON (category) category, payload, published_at FROM shared_items
-       WHERE matter_id = $1 AND provider_node_id = $2 ORDER BY category, published_at DESC`,
+    const latest = await q<{ category: ShareCategory; label: string; payload: unknown; published_at: Date; source_revision: string | null }>(
+      `SELECT DISTINCT ON (category) category, label, payload, published_at, source_revision FROM shared_items
+       WHERE matter_id = $1 AND provider_node_id = $2 ORDER BY category, published_at DESC, id DESC`,
       [matterId, p.nodeId],
     );
+    const revisions = Object.fromEntries(CATEGORIES.map((c) => [c, revisionOf({ label: shareable[c].label, payload: shareable[c].payload ?? null })])) as Record<ShareCategory, string>;
+    const lastSeen = await providerLastSeen(matterId, p.email);
     const published: ProviderShare["published"] = {};
-    for (const l of latest) published[l.category] = { at: l.published_at.toISOString(), stale: canon(l.payload) !== canon(shareable[l.category].payload ?? null) };
+    for (const l of latest) {
+      // Rows published before revisions existed are compared by payload, as before.
+      const stale = l.source_revision ? l.source_revision !== revisions[l.category] : canon(l.payload) !== canon(shareable[l.category].payload ?? null);
+      published[l.category] = { at: l.published_at.toISOString(), stale, seen: !!lastSeen && lastSeen >= l.published_at.getTime() };
+    }
 
     const [code] = p.email ? await q<{ created_at: Date; revoked_at: Date | null }>(
       `SELECT a.created_at, a.revoked_at FROM access_codes a JOIN users u ON u.id = a.user_id
@@ -161,6 +161,7 @@ export async function panelData(matterId: number): Promise<SharePanelData> {
       provider: p,
       consent,
       preview: previewFrom(matterId, patient, shareable, consented),
+      revisions,
       heldBack: CATEGORIES.filter((c) => !consent[c].granted).map((c) => ({
         category: c, label: shareable[c].label || CATEGORY_LABEL[c], items: itemCount(shareable[c].payload),
         reason: c === "coverage" ? "Off by default. Defense counsel may read anything shared." : "No consent recorded",
