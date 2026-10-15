@@ -1,5 +1,6 @@
-// Owner: Laksh. Mounted on the firm page (contract D). Consent grid of provider x category, preview as the
-// provider, what is held back, publish, access codes, replies, opens and the lien.
+// Owner: Laksh. Show consent, publish revisions and provider access on the firm page.
+// portal/types.ts supplies the shared shapes; share API routes persist each action.
+// Publish sends the displayed revisions so the server can reject stale changes.
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
@@ -19,13 +20,20 @@ async function post(url: string, body: object, method = "POST") {
 
 export default function SharePanel({ matterId }: { matterId: number }) {
   const [data, setData] = useState<SharePanelData | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [sel, setSel] = useState<number | null>(null);
   const [msg, setMsg] = useState("");
   const [code, setCode] = useState<{ nodeId: number; email: string; code: string } | null>(null);
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/share?matterId=${matterId}`);
-    if (res.ok) setData(await res.json());
+    try {
+      const res = await fetch(`/api/share?matterId=${matterId}`);
+      if (!res.ok) throw new Error("Provider request failed");
+      setData(await res.json());
+      setLoadError(false);
+    } catch {
+      setLoadError(true);
+    }
   }, [matterId]);
   useEffect(() => {
     const first = setTimeout(load, 0);
@@ -40,12 +48,19 @@ export default function SharePanel({ matterId }: { matterId: number }) {
     await load();
   }
 
-  if (!data) return <div className="text-lg">Loading providers ...</div>;
+  const loadFailure = loadError && (
+    <div className="rounded bg-red-50 p-3">
+      <p role="alert">Could not load providers.</p>
+      <button onClick={load} className="mt-1 font-semibold underline">Retry loading providers</button>
+    </div>
+  );
+  if (!data) return loadFailure || <div role="status" className="text-lg">Loading providers ...</div>;
   const current = data.providers.find((p) => p.provider.nodeId === sel) ?? null;
 
   return (
     <div className="text-lg text-black" id="sec-share">
       <h2 className="mb-1 text-2xl font-bold">Share with providers</h2>
+      {loadFailure}
       <p className="mb-3 rounded border-l-4 border-red-700 bg-red-50 p-3 font-semibold">Assume defense counsel will read this. Nothing is shared until you press Publish.</p>
       {data.providers.length === 0 && <p className="text-neutral-600">No treating providers found among this case&rsquo;s contacts.</p>}
 
@@ -104,7 +119,7 @@ export default function SharePanel({ matterId }: { matterId: number }) {
           <p className="mt-1 text-sm text-neutral-600">Tick = consent recorded. Under each tick: when it was last published, &ldquo;changed&rdquo; if the case has moved on since, and &ldquo;not opened yet&rdquo; until the provider opens the case. Coverage is off by default.</p>
         </div>
       )}
-      {msg && <p className="mt-2 rounded bg-neutral-100 p-2">{msg}</p>}
+      <p role="status" aria-live="polite" className={msg ? "mt-2 rounded bg-neutral-100 p-2" : undefined}>{msg}</p>
 
       {current && (
         <Detail
