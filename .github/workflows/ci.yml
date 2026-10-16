@@ -39,6 +39,12 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - name: Install isolated public lab dependencies
+        run: npm ci --prefix public-lab
+      - name: Verify isolated sharing transaction
+        run: |
+          public-lab/node_modules/.bin/tsc -p public-lab/tsconfig.json
+          node --experimental-strip-types --test public-lab/run.test.ts
       - run: npm run lint
       - run: npx next typegen && npx tsc --noEmit
       - run: npm run build
