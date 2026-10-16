@@ -1,0 +1,1 @@
+{"name":"casebrief-public-lab","private":true,"type":"module","dependencies":{"@electric-sql/pglite":"0.5.10"},"devDependencies":{"@types/node":"^24.3.0","typescript":"^5.9.3"}}
