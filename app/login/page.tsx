@@ -24,6 +24,9 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
           <LoginForm />
         </section>
       </div>
+      <p className="mt-6 text-base text-neutral-700">
+        Want to see the workflow first? <a className="font-semibold text-blue-800 underline" href="/demo">Try the synthetic demo</a>.
+      </p>
     </main>
   );
 }
